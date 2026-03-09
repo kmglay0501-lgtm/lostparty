@@ -338,24 +338,29 @@ export default function HomePage() {
           <div className="text-sm text-gray-500">진행중인 모집이 아직 없어.</div>
         ) : (
           <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
-            {raidPosts.map((post) => (
-              <button
-                key={post.id}
-                onClick={() => router.push(`/raid/${post.id}`)}
-                className="border p-4 rounded-xl text-left"
-              >
-                <div className="font-semibold">{post.title ?? post.raid_name}</div>
-                <div className="text-sm text-gray-500">
-                  {post.raid_name} / {post.difficulty ?? "-"}
-                </div>
-                <div className="text-sm text-gray-500">
-                  시간: {formatDate(post.raid_time)}
-                </div>
-                <div className="text-sm text-gray-500">
-                  신청 인원: {post.current_members}/{post.max_members}
-                </div>
-              </button>
-            ))}
+            {raidPosts.map((post) => {
+              const recruitableSlots = Math.max((post.max_members ?? 0) - 1, 0);
+              const visibleApplicants = Math.max((post.current_members ?? 0) - 1, 0);
+
+              return (
+                <button
+                  key={post.id}
+                  onClick={() => router.push(`/raid/${post.id}`)}
+                  className="border p-4 rounded-xl text-left"
+                >
+                  <div className="font-semibold">{post.title ?? post.raid_name}</div>
+                  <div className="text-sm text-gray-500">
+                    {post.raid_name} / {post.difficulty ?? "-"}
+                  </div>
+                  <div className="text-sm text-gray-500">
+                    시간: {formatDate(post.raid_time)}
+                  </div>
+                  <div className="text-sm text-gray-500">
+                    신청 인원: {visibleApplicants}/{recruitableSlots}
+                  </div>
+                </button>
+              );
+            })}
           </div>
         )}
       </section>

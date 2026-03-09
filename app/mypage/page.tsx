@@ -27,6 +27,7 @@ type Character = {
   weekly_cleared_raid_bases: string[];
   role: string | null;
   gold_exhausted?: boolean | null;
+  is_registered?: boolean;
 };
 
 type RaidPost = {
@@ -37,12 +38,14 @@ type RaidPost = {
   title: string | null;
   description: string | null;
   max_members: number;
+  creator_id?: string;
 };
 
 type RaidApplication = {
   id: string;
   post_id: string;
   character_id: string;
+  user_id?: string;
   role: string | null;
   created_at: string;
 };
@@ -55,6 +58,19 @@ type BuddyRow = {
   avatar_url: string | null;
   is_alt_account: boolean | null;
   created_at: string;
+};
+
+type RaidOption = {
+  id: string;
+  name: string;
+  raid_category: string | null;
+};
+
+type RaidDifficultyOption = {
+  id: string;
+  difficulty: string;
+  required_item_level: number | null;
+  raid_id: string;
 };
 
 function formatDecimal(value: number | null | undefined) {
@@ -72,6 +88,13 @@ function formatDate(value: string | null | undefined) {
   return date.toLocaleString("ko-KR");
 }
 
+function parseRaidCategoryToMembers(value: string | null | undefined) {
+  if (!value) return 0;
+  const match = value.match(/\d+/);
+  if (!match) return 0;
+  return Number(match[0]);
+}
+
 export default function MyPage() {
   const supabase = useMemo(() => createClient(), []);
   const router = useRouter();
@@ -84,12 +107,15 @@ export default function MyPage() {
   const [characters, setCharacters] = useState<Character[]>([]);
   const [refreshingRegistered, setRefreshingRegistered] = useState(false);
 
+  const [raidOptions, setRaidOptions] = useState<RaidOption[]>([]);
+  const [difficultyOptions, setDifficultyOptions] = useState<RaidDifficultyOption[]>([]);
+
   const [raidName, setRaidName] = useState("");
   const [difficulty, setDifficulty] = useState("");
   const [raidTime, setRaidTime] = useState("");
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
-  const [maxMembers, setMaxMembers] = useState(8);
+  const [creatorCharacterId, setCreatorCharacterId] = useState("");
 
   const [myPosts, setMyPosts] = useState<RaidPost[]>([]);
   const [myApplications, setMyApplications] = useState<RaidApplication[]>([]);
@@ -101,6 +127,7 @@ export default function MyPage() {
 
   async function init() {
     setLoading(true);
+    setMessage("");
 
     const {
       data: { user },
@@ -117,9 +144,36 @@ export default function MyPage() {
       loadMyPosts(user.id),
       loadMyApplications(user.id),
       loadBuddies(),
+      loadRaidOptions(),
     ]);
 
     setLoading(false);
+  }
+
+  async function loadRaidOptions() {
+    const [raidsRes, diffRes] = await Promise.all([
+      supabase
+        .from("raids")
+        .select("id, name, raid_category")
+        .order("created_at", { ascending: true }),
+      supabase
+        .from("raid_difficulties")
+        .select("id, difficulty, required_item_level, raid_id")
+        .order("created_at", { ascending: true }),
+    ]);
+
+    if (raidsRes.error) {
+      setMessage(raidsRes.error.message || "레이드 목록을 불러오지 못했어.");
+      return;
+    }
+
+    if (diffRes.error) {
+      setMessage(diffRes.error.message || "레이드 난이도 목록을 불러오지 못했어.");
+      return;
+    }
+
+    setRaidOptions((raidsRes.data as RaidOption[]) ?? []);
+    setDifficultyOptions((diffRes.data as RaidDifficultyOption[]) ?? []);
   }
 
   async function loadCandidates(userId: string) {
@@ -364,6 +418,31 @@ export default function MyPage() {
   async function createRaidPost() {
     setMessage("");
 
+    if (!raidName) {
+      setMessage("레이드를 선택해줘.");
+      return;
+    }
+
+    if (!difficulty) {
+      setMessage("난이도를 선택해줘.");
+      return;
+    }
+
+    if (!raidTime) {
+      setMessage("레이드 시간을 입력해줘.");
+      return;
+    }
+
+    if (!title.trim()) {
+      setMessage("제목을 입력해줘.");
+      return;
+    }
+
+    if (!creatorCharacterId) {
+      setMessage("개설 캐릭터를 선택해줘.");
+      return;
+    }
+
     const res = await fetch("/api/raid/create", {
       method: "POST",
       headers: {
@@ -375,7 +454,7 @@ export default function MyPage() {
         raidTime,
         title,
         description,
-        maxMembers,
+        creatorCharacterId,
       }),
     });
 
@@ -391,17 +470,21 @@ export default function MyPage() {
     setRaidTime("");
     setTitle("");
     setDescription("");
-    setMaxMembers(8);
+    setCreatorCharacterId("");
 
     const {
       data: { user },
     } = await supabase.auth.getUser();
 
     if (user) {
-      await loadMyPosts(user.id);
+      await Promise.all([loadMyPosts(user.id), loadMyApplications(user.id)]);
     }
 
-    setMessage(result.message ?? "레이드 모집 생성 완료");
+    setMessage(
+      `${result.message ?? "레이드 모집 생성 완료"} / 개설 캐릭터 ${
+        result.creatorCharacterName ?? "-"
+      } 자동 참가 / 추가 모집 가능 인원 ${result.recruitableSlots ?? "-"}명`
+    );
   }
 
   async function deleteMyPost(postId: string) {
@@ -498,6 +581,37 @@ export default function MyPage() {
       `${result.message ?? "깐부 자동 파티 생성 완료"} (${result.createdCount ?? 0}개)`
     );
   }
+
+  const selectedRaidRow = raidOptions.find((row) => row.name === raidName) ?? null;
+
+  const filteredDifficultyOptions = selectedRaidRow
+    ? difficultyOptions.filter((row) => row.raid_id === selectedRaidRow.id)
+    : [];
+
+  const selectedDifficultyRow =
+    filteredDifficultyOptions.find((row) => row.difficulty === difficulty) ?? null;
+
+  const eligibleCreatorCharacters = selectedDifficultyRow
+    ? characters.filter(
+        (row) =>
+          (row.item_level ?? 0) >= (selectedDifficultyRow.required_item_level ?? 0)
+      )
+    : [];
+
+  const totalMembers = selectedRaidRow
+    ? parseRaidCategoryToMembers(selectedRaidRow.raid_category)
+    : 0;
+
+  const partyCount = totalMembers > 0 ? totalMembers / 4 : 0;
+  const recruitableSlots = totalMembers > 0 ? Math.max(totalMembers - 1, 0) : 0;
+
+  useEffect(() => {
+    if (!creatorCharacterId) return;
+    const exists = eligibleCreatorCharacters.some((row) => row.id === creatorCharacterId);
+    if (!exists) {
+      setCreatorCharacterId("");
+    }
+  }, [creatorCharacterId, eligibleCreatorCharacters]);
 
   if (loading) {
     return <main className="p-10">불러오는 중...</main>;
@@ -680,18 +794,88 @@ export default function MyPage() {
 
       <section className="rounded-2xl border p-6 space-y-4">
         <h2 className="text-xl font-semibold">레이드 모집 생성</h2>
-        <input
+
+        <select
           className="w-full border p-2"
-          placeholder="레이드 이름"
           value={raidName}
-          onChange={(e) => setRaidName(e.target.value)}
-        />
-        <input
+          onChange={(e) => {
+            setRaidName(e.target.value);
+            setDifficulty("");
+            setCreatorCharacterId("");
+          }}
+        >
+          <option value="">레이드를 선택해줘</option>
+          {raidOptions.map((raid) => (
+            <option key={raid.id} value={raid.name}>
+              {raid.name}
+            </option>
+          ))}
+        </select>
+
+        <select
           className="w-full border p-2"
-          placeholder="난이도"
           value={difficulty}
-          onChange={(e) => setDifficulty(e.target.value)}
-        />
+          onChange={(e) => {
+            setDifficulty(e.target.value);
+            setCreatorCharacterId("");
+          }}
+          disabled={!raidName}
+        >
+          <option value="">
+            {!raidName ? "먼저 레이드를 선택해줘" : "난이도를 선택해줘"}
+          </option>
+          {filteredDifficultyOptions.map((row) => (
+            <option key={row.id} value={row.difficulty}>
+              {row.difficulty}
+              {row.required_item_level ? ` / 권장 ${row.required_item_level}` : ""}
+            </option>
+          ))}
+        </select>
+
+        <select
+          className="w-full border p-2"
+          value={creatorCharacterId}
+          onChange={(e) => setCreatorCharacterId(e.target.value)}
+          disabled={!selectedDifficultyRow}
+        >
+          <option value="">
+            {!selectedDifficultyRow
+              ? "먼저 레이드와 난이도를 선택해줘"
+              : "개설 캐릭터를 선택해줘"}
+          </option>
+          {eligibleCreatorCharacters.map((row) => (
+            <option key={row.id} value={row.id}>
+              {row.character_name ?? "-"} / {row.class_name ?? "-"} / {row.role ?? "-"} / 아이템
+              레벨 {formatDecimal(row.item_level)}
+            </option>
+          ))}
+        </select>
+
+        {selectedRaidRow ? (
+          <div className="rounded-xl bg-gray-50 px-4 py-3 text-sm text-gray-700">
+            총 인원: {totalMembers}명 / 파티 수: {partyCount}개 / 추가 모집 가능 인원:{" "}
+            {recruitableSlots}명
+          </div>
+        ) : null}
+
+        {selectedDifficultyRow ? (
+          <div className="rounded-xl bg-gray-50 px-4 py-3 text-sm text-gray-700">
+            권장 레벨: {formatDecimal(selectedDifficultyRow.required_item_level)} / 배치 규칙:
+            각 파티 1~3번 딜러, 4번 서포터
+          </div>
+        ) : null}
+
+        {selectedDifficultyRow && eligibleCreatorCharacters.length === 0 ? (
+          <div className="text-sm text-red-500">
+            이 난이도의 권장 레벨을 충족하는 등록 캐릭터가 없어.
+          </div>
+        ) : null}
+
+        <div className="rounded-xl bg-blue-50 px-4 py-3 text-sm text-blue-700">
+          개설 캐릭터는 모집 생성과 동시에 자동 참가 처리돼. 딜러면 1파티 1번, 서포터면
+          1파티 4번에 들어가고, 나머지 인원만 추가 모집 가능하게 취급돼.
+        </div>
+
         <input
           className="w-full border p-2"
           type="datetime-local"
@@ -710,14 +894,7 @@ export default function MyPage() {
           value={description}
           onChange={(e) => setDescription(e.target.value)}
         />
-        <input
-          className="w-full border p-2"
-          type="number"
-          min={2}
-          max={8}
-          value={maxMembers}
-          onChange={(e) => setMaxMembers(Number(e.target.value))}
-        />
+
         <button onClick={createRaidPost} className="border px-4 py-2">
           모집 생성
         </button>
@@ -735,7 +912,8 @@ export default function MyPage() {
                 <div>{post.raid_name}</div>
                 <div>난이도: {post.difficulty ?? "-"}</div>
                 <div>시간: {formatDate(post.raid_time)}</div>
-                <div>최대 인원: {post.max_members}</div>
+                <div>총 인원: {post.max_members}</div>
+                <div>추가 모집 가능 인원: {Math.max((post.max_members ?? 0) - 1, 0)}</div>
                 <div className="mt-2 flex gap-2">
                   <button
                     onClick={() => forceCreateParty(post.id)}

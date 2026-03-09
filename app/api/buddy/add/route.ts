@@ -1,7 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { cookies } from "next/headers";
 import { createServerClient } from "@supabase/ssr";
-import { createClient } from "@supabase/supabase-js";
 
 type AddBuddyBody = {
   loginId?: string;
@@ -11,9 +10,8 @@ export async function POST(req: NextRequest) {
   try {
     const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
     const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
-    const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
 
-    if (!supabaseUrl || !supabaseAnonKey || !serviceRoleKey) {
+    if (!supabaseUrl || !supabaseAnonKey) {
       return NextResponse.json(
         { ok: false, error: "Supabase 환경변수가 없습니다." },
         { status: 500 }
@@ -29,13 +27,6 @@ export async function POST(req: NextRequest) {
         },
         set() {},
         remove() {},
-      },
-    });
-
-    const admin = createClient(supabaseUrl, serviceRoleKey, {
-      auth: {
-        autoRefreshToken: false,
-        persistSession: false,
       },
     });
 
@@ -61,42 +52,73 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    const { data: target, error: targetError } = await admin
+    const { data: targetProfile, error: targetError } = await supabase
       .from("profiles")
-      .select("id")
+      .select("id, login_id")
       .eq("login_id", loginId)
       .maybeSingle();
 
-    if (targetError || !target) {
+    if (targetError) {
       return NextResponse.json(
-        { ok: false, error: "대상 유저를 찾지 못했어." },
-        { status: 404 }
-      );
-    }
-
-    if (target.id === user.id) {
-      return NextResponse.json(
-        { ok: false, error: "자기 자신은 깐부 추가할 수 없어." },
+        { ok: false, error: targetError.message || "회원 조회 실패" },
         { status: 400 }
       );
     }
 
-    const userLow = user.id < target.id ? user.id : target.id;
-    const userHigh = user.id < target.id ? target.id : user.id;
-
-    const { error } = await admin.from("buddy_links").upsert(
-      {
-        user_low: userLow,
-        user_high: userHigh,
-      },
-      {
-        onConflict: "user_low,user_high",
-      }
-    );
-
-    if (error) {
+    if (!targetProfile) {
       return NextResponse.json(
-        { ok: false, error: error.message || "깐부 추가 실패" },
+        { ok: false, error: "해당 회원가입 ID를 찾을 수 없습니다." },
+        { status: 404 }
+      );
+    }
+
+    if (targetProfile.id === user.id) {
+      return NextResponse.json(
+        { ok: false, error: "자기 자신은 깐부로 추가할 수 없습니다." },
+        { status: 400 }
+      );
+    }
+
+    const userLow = user.id < targetProfile.id ? user.id : targetProfile.id;
+    const userHigh = user.id < targetProfile.id ? targetProfile.id : user.id;
+
+    const { data: existingLink, error: existingError } = await supabase
+      .from("buddy_links")
+      .select("user_low, user_high")
+      .eq("user_low", userLow)
+      .eq("user_high", userHigh)
+      .maybeSingle();
+
+    if (existingError) {
+      return NextResponse.json(
+        { ok: false, error: existingError.message || "깐부 중복 확인 실패" },
+        { status: 400 }
+      );
+    }
+
+    if (existingLink) {
+      return NextResponse.json(
+        { ok: false, error: "이미 등록된 깐부입니다." },
+        { status: 409 }
+      );
+    }
+
+    const { error: insertError } = await supabase.from("buddy_links").insert({
+      user_low: userLow,
+      user_high: userHigh,
+      created_by: user.id,
+    });
+
+    if (insertError) {
+      if (insertError.code === "23505") {
+        return NextResponse.json(
+          { ok: false, error: "이미 등록된 깐부입니다." },
+          { status: 409 }
+        );
+      }
+
+      return NextResponse.json(
+        { ok: false, error: insertError.message || "깐부 추가 실패" },
         { status: 400 }
       );
     }

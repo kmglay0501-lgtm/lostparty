@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
+import AppShell, { PageCard } from "@/components/AppShell";
 import OwnerAnnouncementPanel from "@/components/OwnerAnnouncementPanel";
 
 type ImportCandidate = {
@@ -29,6 +30,8 @@ type Character = {
   role: string | null;
   gold_exhausted?: boolean | null;
   is_registered?: boolean;
+  class_engraving?: string | null;
+  synergy_labels?: string[] | null;
 };
 
 type RaidPost = {
@@ -39,7 +42,6 @@ type RaidPost = {
   title: string | null;
   description: string | null;
   max_members: number;
-  creator_id?: string;
 };
 
 type RaidApplication = {
@@ -83,7 +85,7 @@ function formatDecimal(value: number | null | undefined) {
 }
 
 function formatDate(value: string | null | undefined) {
-  if (!value) return "-";
+  if (!value) return "미정";
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return value;
   return date.toLocaleString("ko-KR");
@@ -185,12 +187,9 @@ export default function MyPage() {
       .order("combat_power", { ascending: false, nullsFirst: false })
       .order("item_level", { ascending: false, nullsFirst: false });
 
-    if (error) {
-      setMessage(error.message || "후보 캐릭터 목록을 불러오지 못했어.");
-      return;
+    if (!error) {
+      setCandidates((data as ImportCandidate[]) ?? []);
     }
-
-    setCandidates((data as ImportCandidate[]) ?? []);
   }
 
   async function loadCharacters(userId: string) {
@@ -202,12 +201,9 @@ export default function MyPage() {
       .order("combat_power", { ascending: false, nullsFirst: false })
       .order("item_level", { ascending: false, nullsFirst: false });
 
-    if (error) {
-      setMessage(error.message || "등록 캐릭터 목록을 불러오지 못했어.");
-      return;
+    if (!error) {
+      setCharacters((data as Character[]) ?? []);
     }
-
-    setCharacters((data as Character[]) ?? []);
   }
 
   async function loadMyPosts(userId: string) {
@@ -217,12 +213,9 @@ export default function MyPage() {
       .eq("creator_id", userId)
       .order("created_at", { ascending: false });
 
-    if (error) {
-      setMessage(error.message || "내 모집글 목록을 불러오지 못했어.");
-      return;
+    if (!error) {
+      setMyPosts((data as RaidPost[]) ?? []);
     }
-
-    setMyPosts((data as RaidPost[]) ?? []);
   }
 
   async function loadMyApplications(userId: string) {
@@ -232,12 +225,9 @@ export default function MyPage() {
       .eq("user_id", userId)
       .order("created_at", { ascending: false });
 
-    if (error) {
-      setMessage(error.message || "내 신청 목록을 불러오지 못했어.");
-      return;
+    if (!error) {
+      setMyApplications((data as RaidApplication[]) ?? []);
     }
-
-    setMyApplications((data as RaidApplication[]) ?? []);
   }
 
   async function loadBuddies() {
@@ -246,12 +236,9 @@ export default function MyPage() {
       .select("*")
       .order("created_at", { ascending: false });
 
-    if (error) {
-      setMessage(error.message || "깐부 목록을 불러오지 못했어.");
-      return;
+    if (!error) {
+      setBuddies((data as BuddyRow[]) ?? []);
     }
-
-    setBuddies((data as BuddyRow[]) ?? []);
   }
 
   async function saveApiKey() {
@@ -342,8 +329,7 @@ export default function MyPage() {
       }
 
       setMessage(result.message ?? "등록 캐릭터 갱신 완료");
-    } catch (error) {
-      console.error("[refreshRegisteredCharacters] error:", error);
+    } catch {
       setMessage("등록 캐릭터 갱신 중 오류가 발생했어.");
     } finally {
       setRefreshingRegistered(false);
@@ -351,10 +337,7 @@ export default function MyPage() {
   }
 
   async function deleteCharacter(characterId: string) {
-    const { error } = await supabase
-      .from("characters")
-      .delete()
-      .eq("id", characterId);
+    const { error } = await supabase.from("characters").delete().eq("id", characterId);
 
     if (error) {
       setMessage(error.message || "캐릭터 삭제 실패");
@@ -419,31 +402,6 @@ export default function MyPage() {
   async function createRaidPost() {
     setMessage("");
 
-    if (!raidName) {
-      setMessage("레이드를 선택해줘.");
-      return;
-    }
-
-    if (!difficulty) {
-      setMessage("난이도를 선택해줘.");
-      return;
-    }
-
-    if (!raidTime) {
-      setMessage("레이드 시간을 입력해줘.");
-      return;
-    }
-
-    if (!title.trim()) {
-      setMessage("제목을 입력해줘.");
-      return;
-    }
-
-    if (!creatorCharacterId) {
-      setMessage("개설 캐릭터를 선택해줘.");
-      return;
-    }
-
     const res = await fetch("/api/raid/create", {
       method: "POST",
       headers: {
@@ -481,18 +439,11 @@ export default function MyPage() {
       await Promise.all([loadMyPosts(user.id), loadMyApplications(user.id)]);
     }
 
-    setMessage(
-      `${result.message ?? "레이드 모집 생성 완료"} / 개설 캐릭터 ${
-        result.creatorCharacterName ?? "-"
-      } 자동 참가 / 추가 모집 가능 인원 ${result.recruitableSlots ?? "-"}명`
-    );
+    setMessage(result.message ?? "레이드 모집 생성 완료");
   }
 
   async function deleteMyPost(postId: string) {
-    const { error } = await supabase
-      .from("raid_posts")
-      .delete()
-      .eq("id", postId);
+    const { error } = await supabase.from("raid_posts").delete().eq("id", postId);
 
     if (error) {
       setMessage(error.message || "모집 삭제 실패");
@@ -526,7 +477,11 @@ export default function MyPage() {
       return;
     }
 
-    setMessage(result.message ?? "강제 파티 구성 완료");
+    setMessage(
+      `${result.message ?? "강제 파티 구성 완료"} / 배치 ${
+        result.assignedCount ?? 0
+      }명 / 미배치 ${result.unassignedCount ?? 0}명`
+    );
   }
 
   async function cancelApplication(applicationId: string) {
@@ -584,7 +539,6 @@ export default function MyPage() {
   }
 
   const selectedRaidRow = raidOptions.find((row) => row.name === raidName) ?? null;
-
   const filteredDifficultyOptions = selectedRaidRow
     ? difficultyOptions.filter((row) => row.raid_id === selectedRaidRow.id)
     : [];
@@ -609,149 +563,212 @@ export default function MyPage() {
   useEffect(() => {
     if (!creatorCharacterId) return;
     const exists = eligibleCreatorCharacters.some((row) => row.id === creatorCharacterId);
-    if (!exists) {
-      setCreatorCharacterId("");
-    }
+    if (!exists) setCreatorCharacterId("");
   }, [creatorCharacterId, eligibleCreatorCharacters]);
 
   if (loading) {
-    return <main className="p-10">불러오는 중...</main>;
+    return (
+      <main className="min-h-screen bg-[#09090d] p-10 text-white">
+        불러오는 중...
+      </main>
+    );
   }
 
   return (
-    <main className="mx-auto max-w-7xl p-6 space-y-8">
-      <div className="flex items-center justify-between">
-        <h1 className="text-3xl font-bold">마이페이지</h1>
-        <button onClick={() => router.push("/")} className="border px-4 py-2">
-          메인으로
-        </button>
-      </div>
-
-      {message ? (
-        <div className="rounded-xl bg-gray-100 px-4 py-3">{message}</div>
-      ) : null}
-      <OwnerAnnouncementPanel />
-
-      <section className="rounded-2xl border p-6 space-y-4">
-        <h2 className="text-xl font-semibold">API Key 저장</h2>
-        <input
-          type="password"
-          value={apiKeyInput}
-          onChange={(e) => setApiKeyInput(e.target.value)}
-          className="w-full border p-2"
-          placeholder="bearer 포함 또는 제외 가능"
-        />
-        <button onClick={saveApiKey} className="border px-4 py-2">
-          저장
-        </button>
-      </section>
-
-      <section className="rounded-2xl border p-6 space-y-4">
-        <div className="flex items-center justify-between">
-          <h2 className="text-xl font-semibold">
-            불러온 캐릭터 후보 ({candidates.length})
-          </h2>
-          <button onClick={init} className="border px-4 py-2">
-            새로고침
+    <AppShell
+      title="마이페이지"
+      subtitle="내 캐릭터, 모집, 신청, 깐부, 공지를 한 화면에서 관리해."
+      rightSlot={
+        <div className="flex h-full items-start justify-end">
+          <button
+            onClick={() => router.push("/")}
+            className="cursor-pointer rounded-xl border border-white/15 bg-white/10 px-4 py-2 transition hover:bg-white/20"
+          >
+            메인으로
           </button>
         </div>
+      }
+    >
+      {message ? (
+        <div className="rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-sm text-gray-100">
+          {message}
+        </div>
+      ) : null}
 
-        {candidates.length === 0 ? (
-          <div className="text-sm text-gray-500">
-            아직 불러온 후보 캐릭터가 없어. 메인 페이지에서 대표 캐릭터명으로 원정대 후보를 먼저 동기화해줘.
+      <OwnerAnnouncementPanel />
+
+      <section className="grid grid-cols-1 gap-4 xl:grid-cols-2">
+        <PageCard title="API Key 저장">
+          <div className="space-y-3">
+            <input
+              type="password"
+              value={apiKeyInput}
+              onChange={(e) => setApiKeyInput(e.target.value)}
+              className="w-full rounded-xl border border-white/10 bg-black/30 p-3 text-white outline-none"
+              placeholder="bearer 포함 또는 제외 가능"
+            />
+            <button
+              onClick={saveApiKey}
+              className="cursor-pointer rounded-xl border border-white/15 bg-white/10 px-4 py-2 transition hover:bg-white/20"
+            >
+              저장
+            </button>
           </div>
-        ) : (
-          <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
-            {candidates.map((c) => {
-              const checked = selectedIds.includes(c.id);
+        </PageCard>
 
-              return (
-                <label
-                  key={c.id}
-                  className="border p-4 rounded-xl block cursor-pointer"
-                >
-                  <input
-                    type="checkbox"
-                    checked={checked}
-                    onChange={(e) => {
-                      setSelectedIds((prev) =>
-                        e.target.checked
-                          ? [...prev, c.id]
-                          : prev.filter((id) => id !== c.id)
-                      );
-                    }}
-                  />
-                  {c.profile_image_url ? (
-                    <img
-                      src={c.profile_image_url}
-                      width={80}
-                      height={80}
-                      alt={c.character_name ?? "candidate"}
-                      className="mt-2"
-                    />
-                  ) : null}
-                  <div className="mt-2 font-semibold">{c.character_name}</div>
-                  <div>{c.class_name}</div>
-                  <div>전투력: {formatDecimal(c.combat_power)}</div>
-                  <div>아이템 레벨: {formatDecimal(c.item_level)}</div>
-                </label>
-              );
-            })}
+        <PageCard title="깐부 관리">
+          <div className="space-y-3">
+            <button
+              onClick={createBuddyAutoParty}
+              className="cursor-pointer rounded-xl border border-white/15 bg-white/10 px-4 py-2 transition hover:bg-white/20"
+            >
+              깐부 자동 파티 생성
+            </button>
+
+            {buddies.length === 0 ? (
+              <div className="text-sm text-gray-400">등록된 깐부가 아직 없어.</div>
+            ) : (
+              <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
+                {buddies.map((buddy) => (
+                  <div
+                    key={buddy.buddy_user_id}
+                    className="rounded-2xl border border-white/10 bg-black/20 p-4"
+                  >
+                    <div className="font-semibold">
+                      {buddy.display_name ?? buddy.login_id ?? "-"}
+                    </div>
+                    <div className="mt-1 text-sm text-gray-400">
+                      ID: {buddy.login_id ?? "-"}
+                    </div>
+                    <div className="text-sm text-gray-400">
+                      길드: {buddy.guild_name ?? "-"}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
-        )}
-
-        <button onClick={registerSelectedCharacters} className="border px-4 py-2">
-          선택 캐릭터 등록
-        </button>
+        </PageCard>
       </section>
 
-      <section className="rounded-2xl border p-6 space-y-4">
-        <div className="flex items-center justify-between">
-          <h2 className="text-xl font-semibold">등록된 캐릭터 ({characters.length})</h2>
+      <PageCard
+        title={`불러온 캐릭터 후보 (${candidates.length})`}
+        action={
+          <button
+            onClick={init}
+            className="cursor-pointer rounded-xl border border-white/15 bg-white/10 px-4 py-2 text-sm transition hover:bg-white/20"
+          >
+            새로고침
+          </button>
+        }
+      >
+        {candidates.length === 0 ? (
+          <div className="text-sm text-gray-400">
+            아직 불러온 후보 캐릭터가 없어.
+          </div>
+        ) : (
+          <>
+            <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
+              {candidates.map((c) => {
+                const checked = selectedIds.includes(c.id);
+
+                return (
+                  <label
+                    key={c.id}
+                    className="cursor-pointer rounded-2xl border border-white/10 bg-black/20 p-4"
+                  >
+                    <input
+                      type="checkbox"
+                      checked={checked}
+                      onChange={(e) => {
+                        setSelectedIds((prev) =>
+                          e.target.checked
+                            ? [...prev, c.id]
+                            : prev.filter((id) => id !== c.id)
+                        );
+                      }}
+                    />
+                    <div className="mt-3 font-semibold">{c.character_name}</div>
+                    <div className="text-sm text-gray-400">{c.class_name}</div>
+                    <div className="text-sm text-gray-400">
+                      전투력: {formatDecimal(c.combat_power)}
+                    </div>
+                    <div className="text-sm text-gray-400">
+                      아이템 레벨: {formatDecimal(c.item_level)}
+                    </div>
+                  </label>
+                );
+              })}
+            </div>
+
+            <button
+              onClick={registerSelectedCharacters}
+              className="mt-4 cursor-pointer rounded-xl border border-white/15 bg-white/10 px-4 py-2 transition hover:bg-white/20"
+            >
+              선택 캐릭터 등록
+            </button>
+          </>
+        )}
+      </PageCard>
+
+      <PageCard
+        title={`등록된 캐릭터 (${characters.length})`}
+        action={
           <button
             onClick={refreshRegisteredCharacters}
             disabled={refreshingRegistered}
-            className="border px-4 py-2 disabled:opacity-50"
+            className="cursor-pointer rounded-xl border border-white/15 bg-white/10 px-4 py-2 text-sm transition hover:bg-white/20 disabled:opacity-50"
           >
             {refreshingRegistered ? "갱신 중..." : "등록 캐릭터 정보 갱신"}
           </button>
-        </div>
-
+        }
+      >
         {characters.length === 0 ? (
-          <div className="text-sm text-gray-500">등록된 캐릭터가 아직 없어.</div>
+          <div className="text-sm text-gray-400">등록된 캐릭터가 아직 없어.</div>
         ) : (
           <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
             {characters.map((c) => (
               <div
                 key={c.id}
-                className={`border p-4 rounded-xl ${
-                  c.gold_exhausted ? "opacity-40" : ""
+                className={`rounded-2xl border border-white/10 bg-black/20 p-4 ${
+                  c.gold_exhausted ? "opacity-50" : ""
                 }`}
               >
                 <div className="font-semibold">{c.character_name}</div>
-                <div>{c.class_name}</div>
-                <div>역할: {c.role ?? "-"}</div>
-                <div>전투력: {formatDecimal(c.combat_power)}</div>
-                <div>아이템 레벨: {formatDecimal(c.item_level)}</div>
-                <div>주간 골드 획득: {c.weekly_gold_earned_count}/3</div>
+                <div className="text-sm text-gray-400">{c.class_name}</div>
+                <div className="text-sm text-gray-400">
+                  역할: {c.role === "support" ? "💚 서포터" : "딜러"}
+                </div>
+                <div className="text-sm text-gray-400">
+                  전투력: {formatDecimal(c.combat_power)}
+                </div>
+                <div className="text-sm text-gray-400">
+                  아이템 레벨: {formatDecimal(c.item_level)}
+                </div>
+                <div className="text-sm text-gray-400">
+                  직업각인: {c.class_engraving ?? "-"}
+                </div>
+                <div className="text-sm text-gray-400">
+                  시너지: {c.synergy_labels?.length ? c.synergy_labels.join(" / ") : "-"}
+                </div>
 
-                <div className="mt-2 flex flex-wrap gap-2">
+                <div className="mt-3 flex flex-wrap gap-2">
                   <button
                     onClick={() => toggleGoldCharacter(c.id, c.is_gold_earner)}
-                    className="border px-3 py-1"
+                    className="cursor-pointer rounded-xl border border-white/15 bg-white/10 px-3 py-1 transition hover:bg-white/20"
                   >
                     {c.is_gold_earner ? "골드 캐릭터 해제" : "골드 캐릭터 지정"}
                   </button>
                   <button
                     onClick={() => deleteCharacter(c.id)}
-                    className="border px-3 py-1"
+                    className="cursor-pointer rounded-xl border border-white/15 bg-white/10 px-3 py-1 transition hover:bg-white/20"
                   >
                     삭제
                   </button>
                 </div>
 
                 <input
-                  className="mt-3 w-full border p-2"
+                  className="mt-3 w-full rounded-xl border border-white/10 bg-black/30 p-2 text-white outline-none"
                   placeholder="예정 골드 레이드"
                   defaultValue={c.planned_gold_raid ?? ""}
                   onBlur={(e) => updatePlannedRaid(c.id, e.target.value)}
@@ -760,205 +777,174 @@ export default function MyPage() {
             ))}
           </div>
         )}
+      </PageCard>
+
+      <section className="grid grid-cols-1 gap-4 xl:grid-cols-[1fr_1fr]">
+        <PageCard title="레이드 모집 생성">
+          <div className="space-y-3">
+            <select
+              className="w-full rounded-xl border border-white/10 bg-black/30 p-3 text-white outline-none"
+              value={raidName}
+              onChange={(e) => {
+                setRaidName(e.target.value);
+                setDifficulty("");
+                setCreatorCharacterId("");
+              }}
+            >
+              <option value="">레이드를 선택해줘</option>
+              {raidOptions.map((raid) => (
+                <option key={raid.id} value={raid.name}>
+                  {raid.name}
+                </option>
+              ))}
+            </select>
+
+            <select
+              className="w-full rounded-xl border border-white/10 bg-black/30 p-3 text-white outline-none"
+              value={difficulty}
+              onChange={(e) => {
+                setDifficulty(e.target.value);
+                setCreatorCharacterId("");
+              }}
+              disabled={!raidName}
+            >
+              <option value="">
+                {!raidName ? "먼저 레이드를 선택해줘" : "난이도를 선택해줘"}
+              </option>
+              {filteredDifficultyOptions.map((row) => (
+                <option key={row.id} value={row.difficulty}>
+                  {row.difficulty}
+                  {row.required_item_level ? ` / 권장 ${row.required_item_level}` : ""}
+                </option>
+              ))}
+            </select>
+
+            <select
+              className="w-full rounded-xl border border-white/10 bg-black/30 p-3 text-white outline-none"
+              value={creatorCharacterId}
+              onChange={(e) => setCreatorCharacterId(e.target.value)}
+              disabled={!selectedDifficultyRow}
+            >
+              <option value="">
+                {!selectedDifficultyRow
+                  ? "먼저 레이드와 난이도를 선택해줘"
+                  : "개설 캐릭터를 선택해줘"}
+              </option>
+              {eligibleCreatorCharacters.map((row) => (
+                <option key={row.id} value={row.id}>
+                  {row.character_name ?? "-"} / {row.class_name ?? "-"} /{" "}
+                  {row.role === "support" ? "💚 서포터" : "딜러"} / 아이템 레벨{" "}
+                  {formatDecimal(row.item_level)}
+                </option>
+              ))}
+            </select>
+
+            <div className="rounded-2xl border border-white/10 bg-black/20 px-4 py-3 text-sm text-gray-300">
+              총 인원: {totalMembers}명 / 파티 수: {partyCount}개 / 추가 모집 가능 인원:{" "}
+              {recruitableSlots}명
+            </div>
+
+            <input
+              className="w-full rounded-xl border border-white/10 bg-black/30 p-3 text-white outline-none"
+              type="datetime-local"
+              value={raidTime}
+              onChange={(e) => setRaidTime(e.target.value)}
+            />
+            <input
+              className="w-full rounded-xl border border-white/10 bg-black/30 p-3 text-white outline-none"
+              placeholder="제목"
+              value={title}
+              onChange={(e) => setTitle(e.target.value)}
+            />
+            <textarea
+              className="w-full rounded-xl border border-white/10 bg-black/30 p-3 text-white outline-none"
+              placeholder="설명"
+              value={description}
+              onChange={(e) => setDescription(e.target.value)}
+            />
+
+            <button
+              onClick={createRaidPost}
+              className="cursor-pointer rounded-xl border border-white/15 bg-white/10 px-4 py-2 transition hover:bg-white/20"
+            >
+              모집 생성
+            </button>
+          </div>
+        </PageCard>
+
+        <PageCard title="내 신청 목록">
+          {myApplications.length === 0 ? (
+            <div className="text-sm text-gray-400">신청한 레이드가 아직 없어.</div>
+          ) : (
+            <div className="space-y-3">
+              {myApplications.map((application) => (
+                <div
+                  key={application.id}
+                  className="rounded-2xl border border-white/10 bg-black/20 p-4"
+                >
+                  <div className="text-sm text-gray-300">모집 ID: {application.post_id}</div>
+                  <div className="text-sm text-gray-300">
+                    캐릭터 ID: {application.character_id}
+                  </div>
+                  <div className="text-sm text-gray-300">
+                    역할: {application.role === "support" ? "💚 서포터" : "딜러"}
+                  </div>
+                  <div className="text-sm text-gray-400">
+                    신청 시각: {formatDate(application.created_at)}
+                  </div>
+                  <button
+                    onClick={() => cancelApplication(application.id)}
+                    className="mt-3 cursor-pointer rounded-xl border border-white/15 bg-white/10 px-3 py-1 transition hover:bg-white/20"
+                  >
+                    신청 취소
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
+        </PageCard>
       </section>
 
-      <section className="rounded-2xl border p-6 space-y-4">
-        <div className="flex items-center justify-between">
-          <h2 className="text-xl font-semibold">깐부 관리</h2>
-          <button onClick={createBuddyAutoParty} className="border px-4 py-2">
-            깐부 자동 파티 생성
-          </button>
-        </div>
-
-        {buddies.length === 0 ? (
-          <div className="text-sm text-gray-500">등록된 깐부가 아직 없어.</div>
+      <PageCard title="내가 개설한 레이드 모집">
+        {myPosts.length === 0 ? (
+          <div className="text-sm text-gray-400">내가 만든 모집글이 아직 없어.</div>
         ) : (
           <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
-            {buddies.map((buddy) => (
-              <div key={buddy.buddy_user_id} className="border p-4 rounded-xl">
-                <div className="font-semibold">
-                  {buddy.display_name ?? buddy.login_id ?? "-"}
-                </div>
-                <div className="text-sm text-gray-500">
-                  ID: {buddy.login_id ?? "-"}
-                </div>
-                <div className="text-sm text-gray-500">
-                  길드: {buddy.guild_name ?? "-"}
-                </div>
-                <div className="text-sm text-gray-500">
-                  추가일: {formatDate(buddy.created_at)}
-                </div>
-              </div>
-            ))}
-          </div>
-        )}
-      </section>
-
-      <section className="rounded-2xl border p-6 space-y-4">
-        <h2 className="text-xl font-semibold">레이드 모집 생성</h2>
-
-        <select
-          className="w-full border p-2"
-          value={raidName}
-          onChange={(e) => {
-            setRaidName(e.target.value);
-            setDifficulty("");
-            setCreatorCharacterId("");
-          }}
-        >
-          <option value="">레이드를 선택해줘</option>
-          {raidOptions.map((raid) => (
-            <option key={raid.id} value={raid.name}>
-              {raid.name}
-            </option>
-          ))}
-        </select>
-
-        <select
-          className="w-full border p-2"
-          value={difficulty}
-          onChange={(e) => {
-            setDifficulty(e.target.value);
-            setCreatorCharacterId("");
-          }}
-          disabled={!raidName}
-        >
-          <option value="">
-            {!raidName ? "먼저 레이드를 선택해줘" : "난이도를 선택해줘"}
-          </option>
-          {filteredDifficultyOptions.map((row) => (
-            <option key={row.id} value={row.difficulty}>
-              {row.difficulty}
-              {row.required_item_level ? ` / 권장 ${row.required_item_level}` : ""}
-            </option>
-          ))}
-        </select>
-
-        <select
-          className="w-full border p-2"
-          value={creatorCharacterId}
-          onChange={(e) => setCreatorCharacterId(e.target.value)}
-          disabled={!selectedDifficultyRow}
-        >
-          <option value="">
-            {!selectedDifficultyRow
-              ? "먼저 레이드와 난이도를 선택해줘"
-              : "개설 캐릭터를 선택해줘"}
-          </option>
-          {eligibleCreatorCharacters.map((row) => (
-            <option key={row.id} value={row.id}>
-              {row.character_name ?? "-"} / {row.class_name ?? "-"} / {row.role ?? "-"} / 아이템
-              레벨 {formatDecimal(row.item_level)}
-            </option>
-          ))}
-        </select>
-
-        {selectedRaidRow ? (
-          <div className="rounded-xl bg-gray-50 px-4 py-3 text-sm text-gray-700">
-            총 인원: {totalMembers}명 / 파티 수: {partyCount}개 / 추가 모집 가능 인원:{" "}
-            {recruitableSlots}명
-          </div>
-        ) : null}
-
-        {selectedDifficultyRow ? (
-          <div className="rounded-xl bg-gray-50 px-4 py-3 text-sm text-gray-700">
-            권장 레벨: {formatDecimal(selectedDifficultyRow.required_item_level)} / 배치 규칙:
-            각 파티 1~3번 딜러, 4번 서포터
-          </div>
-        ) : null}
-
-        {selectedDifficultyRow && eligibleCreatorCharacters.length === 0 ? (
-          <div className="text-sm text-red-500">
-            이 난이도의 권장 레벨을 충족하는 등록 캐릭터가 없어.
-          </div>
-        ) : null}
-
-        <div className="rounded-xl bg-blue-50 px-4 py-3 text-sm text-blue-700">
-          개설 캐릭터는 모집 생성과 동시에 자동 참가 처리돼. 딜러면 1파티 1번, 서포터면
-          1파티 4번에 들어가고, 나머지 인원만 추가 모집 가능하게 취급돼.
-        </div>
-
-        <input
-          className="w-full border p-2"
-          type="datetime-local"
-          value={raidTime}
-          onChange={(e) => setRaidTime(e.target.value)}
-        />
-        <input
-          className="w-full border p-2"
-          placeholder="제목"
-          value={title}
-          onChange={(e) => setTitle(e.target.value)}
-        />
-        <textarea
-          className="w-full border p-2"
-          placeholder="설명"
-          value={description}
-          onChange={(e) => setDescription(e.target.value)}
-        />
-
-        <button onClick={createRaidPost} className="border px-4 py-2">
-          모집 생성
-        </button>
-      </section>
-
-      <section className="rounded-2xl border p-6 space-y-4">
-        <h2 className="text-xl font-semibold">내가 개설한 레이드 모집</h2>
-        {myPosts.length === 0 ? (
-          <div className="text-sm text-gray-500">내가 만든 모집글이 아직 없어.</div>
-        ) : (
-          <div className="space-y-4">
             {myPosts.map((post) => (
-              <div key={post.id} className="border p-4 rounded-xl">
+              <div
+                key={post.id}
+                className="rounded-2xl border border-white/10 bg-black/20 p-4"
+              >
                 <div className="font-semibold">{post.title ?? post.raid_name}</div>
-                <div>{post.raid_name}</div>
-                <div>난이도: {post.difficulty ?? "-"}</div>
-                <div>시간: {formatDate(post.raid_time)}</div>
-                <div>총 인원: {post.max_members}</div>
-                <div>추가 모집 가능 인원: {Math.max((post.max_members ?? 0) - 1, 0)}</div>
-                <div className="mt-2 flex gap-2">
+                <div className="mt-1 text-sm text-gray-400">{post.raid_name}</div>
+                <div className="text-sm text-gray-400">난이도: {post.difficulty ?? "-"}</div>
+                <div className="text-sm text-gray-400">시간: {formatDate(post.raid_time)}</div>
+                <div className="text-sm text-gray-400">총 인원: {post.max_members}</div>
+                <div className="mt-3 flex flex-wrap gap-2">
                   <button
                     onClick={() => forceCreateParty(post.id)}
-                    className="border px-3 py-1"
+                    className="cursor-pointer rounded-xl border border-white/15 bg-white/10 px-3 py-1 transition hover:bg-white/20"
                   >
                     강제 파티 구성
                   </button>
                   <button
                     onClick={() => deleteMyPost(post.id)}
-                    className="border px-3 py-1"
+                    className="cursor-pointer rounded-xl border border-white/15 bg-white/10 px-3 py-1 transition hover:bg-white/20"
                   >
                     모집 삭제
+                  </button>
+                  <button
+                    onClick={() => router.push(`/raid/${post.id}`)}
+                    className="cursor-pointer rounded-xl border border-white/15 bg-white/10 px-3 py-1 transition hover:bg-white/20"
+                  >
+                    상세 보기
                   </button>
                 </div>
               </div>
             ))}
           </div>
         )}
-      </section>
-
-      <section className="rounded-2xl border p-6 space-y-4">
-        <h2 className="text-xl font-semibold">내 신청 목록</h2>
-        {myApplications.length === 0 ? (
-          <div className="text-sm text-gray-500">신청한 레이드가 아직 없어.</div>
-        ) : (
-          <div className="space-y-4">
-            {myApplications.map((application) => (
-              <div key={application.id} className="border p-4 rounded-xl">
-                <div>모집 ID: {application.post_id}</div>
-                <div>캐릭터 ID: {application.character_id}</div>
-                <div>역할: {application.role ?? "-"}</div>
-                <div>신청 시각: {formatDate(application.created_at)}</div>
-                <button
-                  onClick={() => cancelApplication(application.id)}
-                  className="mt-2 border px-3 py-1"
-                >
-                  신청 취소
-                </button>
-              </div>
-            ))}
-          </div>
-        )}
-      </section>
-    </main>
+      </PageCard>
+    </AppShell>
   );
 }

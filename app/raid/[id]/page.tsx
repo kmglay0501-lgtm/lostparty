@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
+import AppShell, { PageCard } from "@/components/AppShell";
 import {
   formatRoleLabel,
   inferSynergyLabelsFromClassEngraving,
@@ -119,9 +120,7 @@ function SlotDetailCard({
         <div className="text-sm text-gray-500">빈 슬롯</div>
       ) : (
         <>
-          <div className="text-lg font-semibold">
-            {member.character_name ?? "-"}
-          </div>
+          <div className="text-lg font-semibold">{member.character_name ?? "-"}</div>
           <div className="text-sm text-gray-400">
             {member.class_name ?? "-"} / {member.owner_name ?? "-"}
           </div>
@@ -144,9 +143,7 @@ function SlotDetailCard({
 
           <div className="rounded-xl bg-black/20 px-3 py-2 text-sm">
             <div className="text-gray-400">시너지</div>
-            <div>
-              {synergyLabels.length > 0 ? synergyLabels.join(" / ") : "-"}
-            </div>
+            <div>{synergyLabels.length > 0 ? synergyLabels.join(" / ") : "-"}</div>
           </div>
         </>
       )}
@@ -248,7 +245,7 @@ export default function RaidDetailPage() {
 
   if (loading) {
     return (
-      <main className="min-h-screen bg-[#0b0b10] text-white p-10">
+      <main className="min-h-screen bg-[#09090d] p-10 text-white">
         불러오는 중...
       </main>
     );
@@ -256,7 +253,7 @@ export default function RaidDetailPage() {
 
   if (!post) {
     return (
-      <main className="min-h-screen bg-[#0b0b10] text-white p-10">
+      <main className="min-h-screen bg-[#09090d] p-10 text-white">
         모집글을 찾지 못했어.
       </main>
     );
@@ -282,37 +279,40 @@ export default function RaidDetailPage() {
   );
 
   return (
-    <main className="min-h-screen bg-[#0b0b10] text-white">
-      <div className="mx-auto max-w-6xl p-6 space-y-8">
-        <div className="flex items-center justify-between">
-          <h1 className="text-3xl font-extrabold tracking-tight">
-            {post.title ?? post.raid_name}
-          </h1>
+    <AppShell
+      title={post.title ?? post.raid_name}
+      subtitle={`${post.raid_name} / ${post.difficulty ?? "-"} / ${formatDate(
+        post.raid_time
+      )}`}
+      rightSlot={
+        <div className="flex h-full items-start justify-end">
           <button
             onClick={() => router.push("/")}
-            className="cursor-pointer rounded-xl border border-white/15 bg-white/5 px-4 py-2"
+            className="cursor-pointer rounded-xl border border-white/15 bg-white/10 px-4 py-2 transition hover:bg-white/20"
           >
             메인으로
           </button>
         </div>
-
-        <section className="rounded-3xl border border-white/10 bg-white/5 p-6 space-y-3">
-          <div>레이드: {post.raid_name}</div>
-          <div>난이도: {post.difficulty ?? "-"}</div>
-          <div>시간: {formatDate(post.raid_time)}</div>
-          <div>설명: {post.description ?? "-"}</div>
-          <div>총 인원: {post.max_members}</div>
-          <div>추가 모집 가능 인원: {recruitableSlots}</div>
-          <div>
-            현재 신청: {applicantApplications.length}/{recruitableSlots}
+      }
+    >
+      <section className="grid grid-cols-1 gap-4 xl:grid-cols-[0.95fr_1.05fr]">
+        <PageCard title="모집 정보">
+          <div className="space-y-2 text-sm text-gray-300">
+            <div>레이드: {post.raid_name}</div>
+            <div>난이도: {post.difficulty ?? "-"}</div>
+            <div>시간: {formatDate(post.raid_time)}</div>
+            <div>설명: {post.description ?? "-"}</div>
+            <div>총 인원: {post.max_members}</div>
+            <div>추가 모집 가능 인원: {recruitableSlots}</div>
+            <div>
+              현재 신청: {applicantApplications.length}/{recruitableSlots}
+            </div>
           </div>
-        </section>
+        </PageCard>
 
-        {user ? (
-          <section className="rounded-3xl border border-white/10 bg-white/5 p-6 space-y-4">
-            <h2 className="text-xl font-semibold">레이드 신청</h2>
-
-            {isCreator ? (
+        <PageCard title="레이드 신청">
+          {user ? (
+            isCreator ? (
               <div className="rounded-2xl bg-blue-500/10 px-4 py-3 text-blue-300">
                 이 모집은 네가 개설한 모집이야. 개설 캐릭터는 모집 생성 시 자동 참가 처리돼서
                 별도로 다시 신청할 수 없어.
@@ -326,9 +326,9 @@ export default function RaidDetailPage() {
                 등록된 캐릭터가 없어. 마이페이지에서 먼저 캐릭터를 등록해줘.
               </div>
             ) : (
-              <>
+              <div className="space-y-3">
                 <select
-                  className="w-full rounded-xl border border-white/10 bg-black/30 p-3"
+                  className="w-full rounded-xl border border-white/10 bg-black/30 p-3 text-white outline-none"
                   value={selectedCharacterId}
                   onChange={(e) => setSelectedCharacterId(e.target.value)}
                 >
@@ -343,104 +343,101 @@ export default function RaidDetailPage() {
 
                 <button
                   onClick={applyToRaid}
-                  className="cursor-pointer rounded-xl border border-white/15 bg-white/5 px-4 py-2"
+                  className="cursor-pointer rounded-xl border border-white/15 bg-white/10 px-4 py-2 transition hover:bg-white/20"
                 >
                   신청하기
                 </button>
-              </>
-            )}
-          </section>
-        ) : (
-          <section className="rounded-3xl border border-white/10 bg-white/5 p-6">
+              </div>
+            )
+          ) : (
             <div className="text-sm text-gray-400">신청하려면 로그인해줘.</div>
-          </section>
+          )}
+        </PageCard>
+      </section>
+
+      <PageCard title="신청자 목록">
+        {applicantApplications.length === 0 ? (
+          <div className="text-sm text-gray-400">아직 추가 신청자가 없어.</div>
+        ) : (
+          <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+            {applicantApplications.map((application) => {
+              const synergyLabels = getSynergyLabels(application);
+
+              return (
+                <div
+                  key={application.id}
+                  className="rounded-2xl border border-white/10 bg-black/20 p-4 space-y-2"
+                >
+                  <div className="text-lg font-semibold">
+                    {application.character_name ?? "-"}
+                  </div>
+                  <div className="text-sm text-gray-400">
+                    {application.class_name ?? "-"} / {application.owner_name ?? "-"} /{" "}
+                    {formatRoleLabel(application.role)}
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-2 text-sm">
+                    <div className="rounded-xl bg-white/5 px-3 py-2">
+                      <div className="text-gray-400">레벨</div>
+                      <div>{formatDecimal(application.item_level)}</div>
+                    </div>
+                    <div className="rounded-xl bg-white/5 px-3 py-2">
+                      <div className="text-gray-400">전투력</div>
+                      <div>{formatDecimal(application.combat_power)}</div>
+                    </div>
+                  </div>
+
+                  <div className="rounded-xl bg-white/5 px-3 py-2 text-sm">
+                    <div className="text-gray-400">직업각인</div>
+                    <div>{application.class_engraving ?? "-"}</div>
+                  </div>
+
+                  <div className="rounded-xl bg-white/5 px-3 py-2 text-sm">
+                    <div className="text-gray-400">시너지</div>
+                    <div>{synergyLabels.length > 0 ? synergyLabels.join(" / ") : "-"}</div>
+                  </div>
+
+                  <div className="text-sm text-gray-500">
+                    신청 시간: {formatDate(application.created_at)}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
         )}
+      </PageCard>
 
-        <section className="rounded-3xl border border-white/10 bg-white/5 p-6 space-y-4">
-          <h2 className="text-xl font-semibold">신청자 목록</h2>
-          {applicantApplications.length === 0 ? (
-            <div className="text-sm text-gray-400">아직 추가 신청자가 없어.</div>
-          ) : (
-            <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
-              {applicantApplications.map((application) => {
-                const synergyLabels = getSynergyLabels(application);
+      <PageCard title="현재 파티 구성">
+        {partyMembers.length === 0 ? (
+          <div className="text-sm text-gray-400">아직 파티가 구성되지 않았어.</div>
+        ) : (
+          <div className="space-y-8">
+            {Object.entries(groupedPartyMembers)
+              .sort((a, b) => Number(a[0]) - Number(b[0]))
+              .map(([partyNumber, members]) => (
+                <div key={partyNumber} className="space-y-4">
+                  <div className="text-xl font-bold">{partyNumber}파티</div>
 
-                return (
-                  <div
-                    key={application.id}
-                    className="rounded-2xl border border-white/10 bg-white/5 p-4 space-y-2"
-                  >
-                    <div className="text-lg font-semibold">
-                      {application.character_name ?? "-"}
-                    </div>
-                    <div className="text-sm text-gray-400">
-                      {application.class_name ?? "-"} / {application.owner_name ?? "-"} /{" "}
-                      {formatRoleLabel(application.role)}
-                    </div>
-
-                    <div className="grid grid-cols-2 gap-2 text-sm">
-                      <div className="rounded-xl bg-black/20 px-3 py-2">
-                        <div className="text-gray-400">레벨</div>
-                        <div>{formatDecimal(application.item_level)}</div>
-                      </div>
-                      <div className="rounded-xl bg-black/20 px-3 py-2">
-                        <div className="text-gray-400">전투력</div>
-                        <div>{formatDecimal(application.combat_power)}</div>
-                      </div>
-                    </div>
-
-                    <div className="rounded-xl bg-black/20 px-3 py-2 text-sm">
-                      <div className="text-gray-400">시너지</div>
-                      <div>
-                        {synergyLabels.length > 0 ? synergyLabels.join(" / ") : "-"}
-                      </div>
-                    </div>
-
-                    <div className="text-sm text-gray-500">
-                      신청 시간: {formatDate(application.created_at)}
-                    </div>
+                  <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4">
+                    {members
+                      .sort(
+                        (a, b) => (a.slot_number ?? 99) - (b.slot_number ?? 99)
+                      )
+                      .map((member) => (
+                        <SlotDetailCard
+                          key={member.id}
+                          slotLabel={`${member.party_number ?? "-"}파티 ${
+                            member.slot_number ?? "-"
+                          }번`}
+                          member={member}
+                        />
+                      ))}
                   </div>
-                );
-              })}
-            </div>
-          )}
-        </section>
-
-        <section className="rounded-3xl border border-white/10 bg-white/5 p-6 space-y-6">
-          <h2 className="text-xl font-semibold">현재 파티 구성</h2>
-
-          {partyMembers.length === 0 ? (
-            <div className="text-sm text-gray-400">아직 파티가 구성되지 않았어.</div>
-          ) : (
-            <div className="space-y-8">
-              {Object.entries(groupedPartyMembers)
-                .sort((a, b) => Number(a[0]) - Number(b[0]))
-                .map(([partyNumber, members]) => (
-                  <div key={partyNumber} className="space-y-4">
-                    <div className="text-xl font-bold">{partyNumber}파티</div>
-
-                    <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4">
-                      {members
-                        .sort(
-                          (a, b) =>
-                            (a.slot_number ?? 99) - (b.slot_number ?? 99)
-                        )
-                        .map((member) => (
-                          <SlotDetailCard
-                            key={member.id}
-                            slotLabel={`${member.party_number ?? "-"}파티 ${
-                              member.slot_number ?? "-"
-                            }번`}
-                            member={member}
-                          />
-                        ))}
-                    </div>
-                  </div>
-                ))}
-            </div>
-          )}
-        </section>
-      </div>
-    </main>
+                </div>
+              ))}
+          </div>
+        )}
+      </PageCard>
+    </AppShell>
   );
 }

@@ -3,6 +3,7 @@
 import { FormEvent, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
+import AppShell, { PageCard } from "@/components/AppShell";
 
 export default function SignupPage() {
   const supabase = useMemo(() => createClient(), []);
@@ -109,11 +110,8 @@ export default function SignupPage() {
       setEmail("");
       setPassword("");
     } catch (error) {
-      console.error("[signup] error:", error);
       setErrorMessage(
-        error instanceof Error
-          ? error.message
-          : "회원가입 중 오류가 발생했어."
+        error instanceof Error ? error.message : "회원가입 중 오류가 발생했어."
       );
     } finally {
       setLoading(false);
@@ -121,100 +119,87 @@ export default function SignupPage() {
   }
 
   return (
-    <main className="mx-auto max-w-xl p-6">
-      <div className="rounded-2xl border p-6 space-y-6">
-        <div className="flex items-center justify-between">
-          <h1 className="text-2xl font-bold">회원가입</h1>
-          <button onClick={() => router.push("/")} className="border px-4 py-2">
+    <AppShell
+      title="회원가입"
+      subtitle="계정을 만들고 길드 파티 시스템을 이용해봐."
+      rightSlot={
+        <div className="flex h-full items-start justify-end">
+          <button
+            onClick={() => router.push("/")}
+            className="cursor-pointer rounded-xl border border-white/15 bg-white/10 px-4 py-2 transition hover:bg-white/20"
+          >
             메인으로
           </button>
         </div>
-
+      }
+    >
+      <PageCard title="회원가입">
         {errorMessage ? (
-          <div className="rounded-xl bg-red-50 px-4 py-3 text-red-600">
+          <div className="mb-4 rounded-2xl bg-red-500/10 px-4 py-3 text-red-300">
             {errorMessage}
           </div>
         ) : null}
 
         {successMessage ? (
-          <div className="rounded-xl bg-green-50 px-4 py-3 text-green-700">
+          <div className="mb-4 rounded-2xl bg-green-500/10 px-4 py-3 text-green-300">
             {successMessage}
           </div>
         ) : null}
 
         <form onSubmit={handleSignup} className="space-y-4">
-          <div className="space-y-2">
-            <label className="block text-sm font-medium">회원가입 ID</label>
-            <input
-              className="w-full border p-2"
-              value={loginId}
-              onChange={(e) => setLoginId(e.target.value)}
-              placeholder="로그인에 사용할 ID"
-            />
-          </div>
+          <input
+            className="w-full rounded-xl border border-white/10 bg-black/30 p-3 text-white outline-none"
+            value={loginId}
+            onChange={(e) => setLoginId(e.target.value)}
+            placeholder="회원가입 ID"
+          />
 
-          <div className="space-y-2">
-            <label className="block text-sm font-medium">표시 닉네임</label>
-            <input
-              className="w-full border p-2"
-              value={displayName}
-              onChange={(e) => setDisplayName(e.target.value)}
-              placeholder="사이트에서 보여줄 닉네임"
-            />
-          </div>
+          <input
+            className="w-full rounded-xl border border-white/10 bg-black/30 p-3 text-white outline-none"
+            value={displayName}
+            onChange={(e) => setDisplayName(e.target.value)}
+            placeholder="표시 닉네임"
+          />
 
-          <div className="space-y-2">
-            <label className="block text-sm font-medium">길드명</label>
-            <input
-              className="w-full border p-2"
-              value={guildName}
-              onChange={(e) => setGuildName(e.target.value)}
-              placeholder="선택 입력"
-            />
-          </div>
+          <input
+            className="w-full rounded-xl border border-white/10 bg-black/30 p-3 text-white outline-none"
+            value={guildName}
+            onChange={(e) => setGuildName(e.target.value)}
+            placeholder="길드명"
+          />
 
-          <div className="space-y-2">
-            <label className="block text-sm font-medium">이메일</label>
-            <input
-              className="w-full border p-2"
-              type="email"
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-              placeholder="example@email.com"
-            />
-          </div>
+          <input
+            className="w-full rounded-xl border border-white/10 bg-black/30 p-3 text-white outline-none"
+            type="email"
+            value={email}
+            onChange={(e) => setEmail(e.target.value)}
+            placeholder="이메일"
+          />
 
-          <div className="space-y-2">
-            <label className="block text-sm font-medium">비밀번호</label>
-            <input
-              className="w-full border p-2"
-              type="password"
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              placeholder="비밀번호"
-            />
-          </div>
+          <input
+            className="w-full rounded-xl border border-white/10 bg-black/30 p-3 text-white outline-none"
+            type="password"
+            value={password}
+            onChange={(e) => setPassword(e.target.value)}
+            placeholder="비밀번호"
+          />
 
           <button
             type="submit"
             disabled={loading}
-            className="border px-4 py-2 disabled:opacity-50"
+            className="cursor-pointer rounded-xl border border-white/15 bg-white/10 px-4 py-2 transition hover:bg-white/20 disabled:opacity-50"
           >
             {loading ? "가입 처리 중..." : "회원가입"}
           </button>
         </form>
 
-        <div className="text-sm text-gray-500">
-          이미 계정이 있으면 로그인 페이지로 이동해서 로그인해줘.
-        </div>
-
         <button
           onClick={() => router.push("/login")}
-          className="border px-4 py-2"
+          className="mt-4 cursor-pointer rounded-xl border border-white/15 bg-white/10 px-4 py-2 transition hover:bg-white/20"
         >
           로그인으로 이동
         </button>
-      </div>
-    </main>
+      </PageCard>
+    </AppShell>
   );
 }

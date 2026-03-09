@@ -44,7 +44,7 @@ const ENGRAVING_META_LIST: EngravingMeta[] = [
   { shortName: "야성", fullName: "야성", role: "dps", synergyCodes: ["armor_reduction"] },
 
   { shortName: "광기", fullName: "광기", role: "dps", synergyCodes: ["damage_amplify"] },
-  { shortName: "비기", fullName: "비기의 대가", role: "dps", synergyCodes: ["damage_amplify"] },
+  { shortName: "비기", fullName: "광전사의 비기", role: "dps", synergyCodes: ["damage_amplify"] },
   { shortName: "처단", fullName: "처단자", role: "dps", synergyCodes: ["damage_amplify"] },
   { shortName: "포식", fullName: "포식자", role: "dps", synergyCodes: ["damage_amplify"] },
   { shortName: "체술", fullName: "극의: 체술", role: "dps", synergyCodes: ["damage_amplify"] },
@@ -66,7 +66,7 @@ const ENGRAVING_META_LIST: EngravingMeta[] = [
   { shortName: "버스트", fullName: "버스트", role: "dps", synergyCodes: ["front_back_damage_amplify"] },
 
   { shortName: "심판자", fullName: "심판자", role: "dps", synergyCodes: ["crit_damage"] },
-  { shortName: "빛의기사", fullName: "빛의 기사", role: "dps", synergyCodes: ["crit_damage"] },
+
   { shortName: "빛의 기사", fullName: "빛의 기사", role: "dps", synergyCodes: ["crit_damage"] },
   { shortName: "절제", fullName: "절제", role: "dps", synergyCodes: ["crit_damage"] },
   { shortName: "절정", fullName: "절정", role: "dps", synergyCodes: ["crit_damage"] },

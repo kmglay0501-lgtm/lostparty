@@ -1,7 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { cookies } from "next/headers";
 import { createServerClient } from "@supabase/ssr";
-import { createClient } from "@supabase/supabase-js";
 
 type ForcePartyBody = {
   postId?: string;
@@ -11,9 +10,8 @@ export async function POST(req: NextRequest) {
   try {
     const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
     const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
-    const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
 
-    if (!supabaseUrl || !supabaseAnonKey || !serviceRoleKey) {
+    if (!supabaseUrl || !supabaseAnonKey) {
       return NextResponse.json(
         { ok: false, error: "Supabase 환경변수가 없습니다." },
         { status: 500 }
@@ -29,13 +27,6 @@ export async function POST(req: NextRequest) {
         },
         set() {},
         remove() {},
-      },
-    });
-
-    const admin = createClient(supabaseUrl, serviceRoleKey, {
-      auth: {
-        autoRefreshToken: false,
-        persistSession: false,
       },
     });
 
@@ -61,55 +52,27 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    const { data: post, error: postError } = await admin
+    const { data: postData, error: postError } = await supabase
       .from("raid_posts")
       .select("id, creator_id")
       .eq("id", postId)
       .maybeSingle();
 
-    if (postError || !post) {
+    if (postError || !postData) {
       return NextResponse.json(
-        { ok: false, error: "레이드 모집을 찾지 못했어." },
+        { ok: false, error: "모집글을 찾을 수 없습니다." },
         { status: 404 }
       );
     }
 
-    if (post.creator_id !== user.id) {
+    if (postData.creator_id !== user.id) {
       return NextResponse.json(
-        { ok: false, error: "내가 만든 모집글만 강제 파티 구성이 가능해." },
+        { ok: false, error: "모집 개설자만 강제 파티 구성을 할 수 있습니다." },
         { status: 403 }
       );
     }
 
-    const { data: countData, error: countError } = await admin
-      .from("raid_post_applications")
-      .select("id", { count: "exact", head: true })
-      .eq("post_id", postId);
-
-    if (countError) {
-      return NextResponse.json(
-        { ok: false, error: "신청 인원 확인 실패" },
-        { status: 500 }
-      );
-    }
-
-    if ((countData as unknown) === null) {
-      // no-op
-    }
-
-    const { count } = await admin
-      .from("raid_post_applications")
-      .select("id", { count: "exact", head: true })
-      .eq("post_id", postId);
-
-    if ((count ?? 0) < 2) {
-      return NextResponse.json(
-        { ok: false, error: "2명 이상일 때만 강제 파티 구성이 가능해." },
-        { status: 400 }
-      );
-    }
-
-    const { data, error } = await admin.rpc("force_create_party", {
+    const { data, error } = await supabase.rpc("force_create_party", {
       p_post_id: postId,
     });
 
@@ -120,10 +83,23 @@ export async function POST(req: NextRequest) {
       );
     }
 
+    const payload =
+      typeof data === "object" && data ? (data as Record<string, unknown>) : {};
+
     return NextResponse.json({
       ok: true,
-      partyId: data,
-      message: "강제 파티 구성 완료",
+      message:
+        typeof payload.message === "string"
+          ? payload.message
+          : "강제 파티 구성 완료",
+      assignedCount:
+        typeof payload.assigned_count === "number" ? payload.assigned_count : 0,
+      unassignedCount:
+        typeof payload.unassigned_count === "number"
+          ? payload.unassigned_count
+          : 0,
+      partyCount:
+        typeof payload.party_count === "number" ? payload.party_count : 0,
     });
   } catch (error) {
     console.error("[/api/raid/force-party] error:", error);

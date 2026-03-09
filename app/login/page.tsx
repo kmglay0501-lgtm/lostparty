@@ -3,6 +3,7 @@
 import { FormEvent, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
+import AppShell, { PageCard } from "@/components/AppShell";
 
 export default function LoginPage() {
   const supabase = useMemo(() => createClient(), []);
@@ -15,15 +16,17 @@ export default function LoginPage() {
 
   async function handleLogin(e: FormEvent) {
     e.preventDefault();
+    setLoading(true);
     setMessage("");
 
     const { error } = await supabase.auth.signInWithPassword({
       email: email.trim(),
-      password: password.trim(),
+      password,
     });
 
     if (error) {
       setMessage(error.message || "로그인 실패");
+      setLoading(false);
       return;
     }
 
@@ -32,41 +35,59 @@ export default function LoginPage() {
   }
 
   return (
-    <main className="mx-auto max-w-md p-6">
-      <div className="rounded-2xl border p-6">
-        <h1 className="text-2xl font-bold">로그인</h1>
+    <AppShell
+      title="로그인"
+      subtitle="이메일과 비밀번호로 로그인해."
+      rightSlot={
+        <div className="flex h-full items-start justify-end">
+          <button
+            onClick={() => router.push("/")}
+            className="cursor-pointer rounded-xl border border-white/15 bg-white/10 px-4 py-2 transition hover:bg-white/20"
+          >
+            메인으로
+          </button>
+        </div>
+      }
+    >
+      <PageCard title="로그인">
+        {message ? (
+          <div className="mb-4 rounded-2xl bg-white/10 px-4 py-3 text-sm text-gray-200">
+            {message}
+          </div>
+        ) : null}
 
-        <form onSubmit={handleLogin} className="mt-6 space-y-4">
+        <form onSubmit={handleLogin} className="space-y-4">
           <input
+            className="w-full rounded-xl border border-white/10 bg-black/30 p-3 text-white outline-none"
             type="email"
             value={email}
             onChange={(e) => setEmail(e.target.value)}
-            className="w-full rounded-xl border px-4 py-3"
             placeholder="이메일"
           />
           <input
+            className="w-full rounded-xl border border-white/10 bg-black/30 p-3 text-white outline-none"
             type="password"
             value={password}
             onChange={(e) => setPassword(e.target.value)}
-            className="w-full rounded-xl border px-4 py-3"
             placeholder="비밀번호"
           />
-
-          {message ? (
-            <div className="rounded-xl bg-gray-100 px-4 py-3 text-sm">
-              {message}
-            </div>
-          ) : null}
 
           <button
             type="submit"
             disabled={loading}
-            className="w-full rounded-xl border px-4 py-3"
+            className="cursor-pointer rounded-xl border border-white/15 bg-white/10 px-4 py-2 transition hover:bg-white/20 disabled:opacity-50"
           >
             {loading ? "로그인 중..." : "로그인"}
           </button>
         </form>
-      </div>
-    </main>
+
+        <button
+          onClick={() => router.push("/signup")}
+          className="mt-4 cursor-pointer rounded-xl border border-white/15 bg-white/10 px-4 py-2 transition hover:bg-white/20"
+        >
+          회원가입으로 이동
+        </button>
+      </PageCard>
+    </AppShell>
   );
 }

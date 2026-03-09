@@ -145,6 +145,9 @@ function buildTopRanking(
       continue;
     }
 
+    // 대표 캐릭터 선정 기준:
+    // 1) 더 높은 아이템 레벨
+    // 2) 아이템 레벨이 같으면 더 높은 전투력
     if (current.itemLevel > prev.itemLevel) {
       bestByUser.set(row.user_id, current);
       continue;
@@ -158,9 +161,12 @@ function buildTopRanking(
     }
   }
 
+  // 최종 랭킹 표시 기준:
+  // 1) 전투력 내림차순
+  // 2) 전투력이 같으면 아이템 레벨 내림차순
   return Array.from(bestByUser.values()).sort((a, b) => {
-    if (b.itemLevel !== a.itemLevel) return b.itemLevel - a.itemLevel;
-    return b.combatPower - a.combatPower;
+    if (b.combatPower !== a.combatPower) return b.combatPower - a.combatPower;
+    return b.itemLevel - a.itemLevel;
   });
 }
 

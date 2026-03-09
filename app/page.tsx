@@ -4,19 +4,6 @@ import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 
-type GuildRankingRow = {
-  user_id: string;
-  display_name: string | null;
-  guild_name: string | null;
-  character_id: string;
-  character_name: string | null;
-  server_name: string | null;
-  class_name: string | null;
-  item_level: number | null;
-  combat_power: number | null;
-  profile_image_url: string | null;
-};
-
 type RaidPostRow = {
   id: string;
   raid_name: string;
@@ -35,14 +22,6 @@ type CompletedPartyRow = {
   raid_name: string | null;
   status: string;
   members: number;
-};
-
-type MemberRow = {
-  id: string;
-  login_id: string | null;
-  display_name: string | null;
-  guild_name: string | null;
-  is_alt_account: boolean | null;
 };
 
 type BuddyListRow = {
@@ -73,10 +52,41 @@ type BuddyCharacterRow = {
   is_registered: boolean;
 };
 
+type ActiveAnnouncementRow = {
+  id: string;
+  title: string;
+  body: string;
+  created_at: string;
+  updated_at: string;
+};
+
+type CharacterRankingSourceRow = {
+  id: string;
+  user_id: string;
+  character_name: string | null;
+  class_name: string | null;
+  combat_power: number | null;
+  item_level: number | null;
+  is_registered: boolean;
+};
+
+type ProfileRankingSourceRow = {
+  id: string;
+  display_name: string | null;
+};
+
+type RankingItem = {
+  userId: string;
+  ownerName: string;
+  characterName: string;
+  className: string;
+  combatPower: number;
+  itemLevel: number;
+};
+
 function formatDecimal(value: number | null | undefined) {
   if (value === null || value === undefined) return "-";
   return new Intl.NumberFormat("ko-KR", {
-    minimumFractionDigits: 0,
     maximumFractionDigits: 2,
   }).format(value);
 }
@@ -88,21 +98,104 @@ function formatDate(value: string | null | undefined) {
   return date.toLocaleString("ko-KR");
 }
 
+function getCurrentWeekLabel() {
+  const now = new Date();
+  const start = new Date(now.getFullYear(), 0, 1);
+  const diff = now.getTime() - start.getTime();
+  const day = Math.floor(diff / (1000 * 60 * 60 * 24));
+  const week = Math.ceil((day + start.getDay() + 1) / 7);
+  return `${now.getFullYear()}년 ${week}주차`;
+}
+
+function medalBadge(rank: number) {
+  if (rank === 1) return "🥇 1";
+  if (rank === 2) return "🥈 2";
+  if (rank === 3) return "🥉 3";
+  return `${rank}`;
+}
+
+function buildTopRanking(
+  characters: CharacterRankingSourceRow[],
+  profiles: ProfileRankingSourceRow[]
+) {
+  const profileMap = new Map<string, string>();
+
+  for (const profile of profiles) {
+    profileMap.set(profile.id, profile.display_name ?? "이름없음");
+  }
+
+  const bestByUser = new Map<string, RankingItem>();
+
+  for (const row of characters) {
+    if (!row.user_id) continue;
+
+    const current: RankingItem = {
+      userId: row.user_id,
+      ownerName: profileMap.get(row.user_id) ?? "이름없음",
+      characterName: row.character_name ?? "-",
+      className: row.class_name ?? "-",
+      combatPower: row.combat_power ?? 0,
+      itemLevel: row.item_level ?? 0,
+    };
+
+    const prev = bestByUser.get(row.user_id);
+
+    if (!prev) {
+      bestByUser.set(row.user_id, current);
+      continue;
+    }
+
+    if (current.itemLevel > prev.itemLevel) {
+      bestByUser.set(row.user_id, current);
+      continue;
+    }
+
+    if (
+      current.itemLevel === prev.itemLevel &&
+      current.combatPower > prev.combatPower
+    ) {
+      bestByUser.set(row.user_id, current);
+    }
+  }
+
+  return Array.from(bestByUser.values()).sort((a, b) => {
+    if (b.itemLevel !== a.itemLevel) return b.itemLevel - a.itemLevel;
+    return b.combatPower - a.combatPower;
+  });
+}
+
+function DashboardCard({
+  title,
+  children,
+  action,
+}: {
+  title: string;
+  children: React.ReactNode;
+  action?: React.ReactNode;
+}) {
+  return (
+    <section className="rounded-3xl border border-white/10 bg-white/5 p-5 backdrop-blur-sm">
+      <div className="mb-4 flex items-center justify-between gap-3">
+        <h2 className="text-lg font-semibold text-white">{title}</h2>
+        {action}
+      </div>
+      {children}
+    </section>
+  );
+}
+
 export default function HomePage() {
   const supabase = useMemo(() => createClient(), []);
   const router = useRouter();
 
   const [user, setUser] = useState<any>(null);
-  const [guildRanking, setGuildRanking] = useState<GuildRankingRow[]>([]);
   const [raidPosts, setRaidPosts] = useState<RaidPostRow[]>([]);
-  const [completedParties, setCompletedParties] = useState<CompletedPartyRow[]>(
-    []
-  );
-  const [members, setMembers] = useState<MemberRow[]>([]);
+  const [completedParties, setCompletedParties] = useState<CompletedPartyRow[]>([]);
   const [buddies, setBuddies] = useState<BuddyListRow[]>([]);
-  const [buddyCharacters, setBuddyCharacters] = useState<BuddyCharacterRow[]>(
-    []
-  );
+  const [buddyCharacters, setBuddyCharacters] = useState<BuddyCharacterRow[]>([]);
+  const [announcement, setAnnouncement] = useState<ActiveAnnouncementRow | null>(null);
+  const [ranking, setRanking] = useState<RankingItem[]>([]);
+  const [showFullRanking, setShowFullRanking] = useState(false);
   const [loading, setLoading] = useState(true);
   const [buddyInput, setBuddyInput] = useState("");
   const [message, setMessage] = useState("");
@@ -120,45 +213,54 @@ export default function HomePage() {
 
     setUser(user ?? null);
 
-    const [rankingRes, postRes, partyRes, memberRes, buddyRes, buddyCharRes] =
-      await Promise.all([
-        supabase
-          .from("v_guild_member_ranking")
-          .select("*")
-          .order("combat_power", { ascending: false, nullsFirst: false })
-          .order("item_level", { ascending: false, nullsFirst: false }),
-        supabase
-          .from("v_active_raid_posts")
-          .select("*")
-          .order("raid_time", { ascending: true, nullsFirst: false }),
-        supabase
-          .from("v_completed_parties")
-          .select("*")
-          .order("members", { ascending: false }),
-        supabase
-          .from("profiles")
-          .select("id, login_id, display_name, guild_name, is_alt_account")
-          .order("display_name", { ascending: true }),
-        user
-          ? supabase
-              .from("v_my_buddies")
-              .select("*")
-              .order("created_at", { ascending: false })
-          : Promise.resolve({ data: [] as any[] }),
-        user
-          ? supabase
-              .from("v_buddy_characters")
-              .select("*")
-              .order("combat_power", { ascending: false, nullsFirst: false })
-          : Promise.resolve({ data: [] as any[] }),
-      ]);
+    const [
+      postRes,
+      partyRes,
+      buddyRes,
+      buddyCharRes,
+      announcementRes,
+      characterRankingRes,
+      profileRankingRes,
+    ] = await Promise.all([
+      supabase
+        .from("v_active_raid_posts")
+        .select("*")
+        .order("raid_time", { ascending: true, nullsFirst: false }),
+      supabase
+        .from("v_completed_parties")
+        .select("*")
+        .order("members", { ascending: false }),
+      user
+        ? supabase
+            .from("v_my_buddies")
+            .select("*")
+            .order("created_at", { ascending: false })
+        : Promise.resolve({ data: [] as any[] }),
+      user
+        ? supabase
+            .from("v_buddy_characters")
+            .select("*")
+            .order("combat_power", { ascending: false, nullsFirst: false })
+        : Promise.resolve({ data: [] as any[] }),
+      supabase.from("v_active_announcement").select("*").maybeSingle(),
+      supabase
+        .from("characters")
+        .select("id, user_id, character_name, class_name, combat_power, item_level, is_registered")
+        .eq("is_registered", true),
+      supabase.from("profiles").select("id, display_name"),
+    ]);
 
-    setGuildRanking((rankingRes.data as GuildRankingRow[]) ?? []);
+    const characterRankingRows =
+      (characterRankingRes.data as CharacterRankingSourceRow[]) ?? [];
+    const profileRankingRows =
+      (profileRankingRes.data as ProfileRankingSourceRow[]) ?? [];
+
     setRaidPosts((postRes.data as RaidPostRow[]) ?? []);
     setCompletedParties((partyRes.data as CompletedPartyRow[]) ?? []);
-    setMembers((memberRes.data as MemberRow[]) ?? []);
     setBuddies((buddyRes.data as BuddyListRow[]) ?? []);
     setBuddyCharacters((buddyCharRes.data as BuddyCharacterRow[]) ?? []);
+    setAnnouncement((announcementRes.data as ActiveAnnouncementRow | null) ?? null);
+    setRanking(buildTopRanking(characterRankingRows, profileRankingRows));
     setLoading(false);
   }
 
@@ -190,28 +292,6 @@ export default function HomePage() {
     await init();
   }
 
-  async function removeBuddy(buddyUserId: string) {
-    setMessage("");
-
-    const res = await fetch("/api/buddy/remove", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({ buddyUserId }),
-    });
-
-    const result = await res.json();
-
-    if (!res.ok || !result.ok) {
-      setMessage(result.error ?? "깐부 삭제 실패");
-      return;
-    }
-
-    setMessage(result.message ?? "깐부 삭제 완료");
-    await init();
-  }
-
   async function createBuddyAutoParty() {
     setMessage("");
 
@@ -237,288 +317,386 @@ export default function HomePage() {
     router.replace("/login");
   }
 
-  function groupedBuddyCharacters() {
-    const map = new Map<string, BuddyCharacterRow[]>();
-
-    for (const row of buddyCharacters) {
-      const key = row.user_id;
-      const prev = map.get(key) ?? [];
-      prev.push(row);
-      map.set(key, prev);
-    }
-
-    return Array.from(map.entries());
-  }
+  const weekLabel = getCurrentWeekLabel();
+  const top10Ranking = ranking.slice(0, 10);
 
   if (loading) {
-    return <main className="p-10">불러오는 중...</main>;
+    return (
+      <main className="min-h-screen bg-[#09090d] p-10 text-white">
+        불러오는 중...
+      </main>
+    );
   }
 
   return (
-    <main className="mx-auto max-w-7xl p-6 space-y-8">
-      <div className="flex items-center justify-between">
-        <h1 className="text-3xl font-bold">LOSTPARTY</h1>
-        <div className="flex gap-2">
-          {!user ? (
-            <>
-              <button
-                onClick={() => router.push("/login")}
-                className="border px-4 py-2"
-              >
-                로그인
-              </button>
-              <button
-                onClick={() => router.push("/signup")}
-                className="border px-4 py-2"
-              >
-                회원가입
-              </button>
-            </>
-          ) : (
-            <>
-              <button
-                onClick={() => router.push("/mypage")}
-                className="border px-4 py-2"
-              >
-                마이페이지
-              </button>
-              <button onClick={logout} className="border px-4 py-2">
-                로그아웃
-              </button>
-            </>
-          )}
-        </div>
-      </div>
-
-      {message ? (
-        <div className="rounded-xl bg-gray-100 px-4 py-3">{message}</div>
-      ) : null}
-
-      <section className="rounded-2xl border p-6 space-y-4">
-        <h2 className="text-xl font-semibold">길드원 랭킹 목록 (전투력 순)</h2>
-        {guildRanking.length === 0 ? (
-          <div className="text-sm text-gray-500">랭킹 데이터가 아직 없어.</div>
-        ) : (
-          <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
-            {guildRanking.map((row) => (
-              <div key={row.character_id} className="border p-4 rounded-xl">
-                {row.profile_image_url ? (
-                  <img
-                    src={row.profile_image_url}
-                    width={80}
-                    height={80}
-                    alt={row.character_name ?? "character"}
-                  />
-                ) : null}
-                <div className="mt-2 font-semibold">{row.character_name}</div>
-                <div>{row.display_name ?? "-"}</div>
-                <div>{row.class_name}</div>
-                <div>전투력: {formatDecimal(row.combat_power)}</div>
-                <div>아이템 레벨: {formatDecimal(row.item_level)}</div>
-              </div>
-            ))}
-          </div>
-        )}
-      </section>
-
-      <section className="rounded-2xl border p-6 space-y-4">
-        <div className="flex items-center justify-between">
-          <h2 className="text-xl font-semibold">진행중인 레이드 신청</h2>
-          {user ? (
+    <main className="min-h-screen bg-[#09090d] text-white">
+      <div className="mx-auto max-w-7xl p-5 md:p-8 space-y-6">
+        <header className="grid grid-cols-1 gap-4 xl:grid-cols-[1.2fr_1fr_0.8fr]">
+          <div className="rounded-3xl border border-white/10 bg-white/5 p-6">
             <button
-              onClick={() => router.push("/mypage")}
-              className="border px-4 py-2"
+              onClick={() => router.push("/")}
+              className="cursor-pointer text-left"
             >
-              모집 만들기
-            </button>
-          ) : null}
-        </div>
-
-        {raidPosts.length === 0 ? (
-          <div className="text-sm text-gray-500">진행중인 모집이 아직 없어.</div>
-        ) : (
-          <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
-            {raidPosts.map((post) => {
-              const recruitableSlots = Math.max((post.max_members ?? 0) - 1, 0);
-              const visibleApplicants = Math.max((post.current_members ?? 0) - 1, 0);
-
-              return (
-                <button
-                  key={post.id}
-                  onClick={() => router.push(`/raid/${post.id}`)}
-                  className="border p-4 rounded-xl text-left"
-                >
-                  <div className="font-semibold">{post.title ?? post.raid_name}</div>
-                  <div className="text-sm text-gray-500">
-                    {post.raid_name} / {post.difficulty ?? "-"}
-                  </div>
-                  <div className="text-sm text-gray-500">
-                    시간: {formatDate(post.raid_time)}
-                  </div>
-                  <div className="text-sm text-gray-500">
-                    신청 인원: {visibleApplicants}/{recruitableSlots}
-                  </div>
-                </button>
-              );
-            })}
-          </div>
-        )}
-      </section>
-
-      <section className="rounded-2xl border p-6 space-y-4">
-        <h2 className="text-xl font-semibold">구성완료된 파티목록</h2>
-        {completedParties.length === 0 ? (
-          <div className="text-sm text-gray-500">완성된 파티가 아직 없어.</div>
-        ) : (
-          <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
-            {completedParties.map((party) => (
-              <div key={party.party_id} className="border p-4 rounded-xl">
-                <div className="font-semibold">{party.raid_name ?? "-"}</div>
-                <div className="text-sm text-gray-500">상태: {party.status}</div>
-                <div className="text-sm text-gray-500">멤버 수: {party.members}</div>
+              <div
+                className="text-4xl font-black tracking-tight md:text-5xl"
+                style={{
+                  textShadow:
+                    "0 2px 0 rgba(255,255,255,0.08), 0 8px 24px rgba(0,0,0,0.45)",
+                }}
+              >
+                <span className="text-white">LOST</span>{" "}
+                <span className="bg-gradient-to-r from-rose-400 via-fuchsia-400 to-violet-400 bg-clip-text text-transparent">
+                  PARTY
+                </span>
               </div>
-            ))}
+            </button>
+            <p className="mt-3 text-sm text-gray-400">
+              로스트아크 길드 파티 모집과 자동 파티 편성을 한눈에 보는 대시보드
+            </p>
           </div>
-        )}
-      </section>
 
-      <section className="rounded-2xl border p-6 space-y-4">
-        <div className="flex items-center justify-between">
-          <h2 className="text-xl font-semibold">깐부 목록</h2>
-          {user ? (
-            <button onClick={createBuddyAutoParty} className="border px-4 py-2">
-              깐부 자동 파티 생성
-            </button>
-          ) : null}
-        </div>
+          <div className="rounded-3xl border border-white/10 bg-white/5 p-6 text-center">
+            <div className="text-sm text-gray-400">현재 진행 주차</div>
+            <div className="mt-2 text-3xl font-bold text-white">{weekLabel}</div>
 
-        {user ? (
-          <div className="flex gap-2">
-            <input
-              className="flex-1 border p-2"
-              placeholder="회원가입 ID로 깐부 추가"
-              value={buddyInput}
-              onChange={(e) => setBuddyInput(e.target.value)}
-            />
-            <button onClick={addBuddy} className="border px-4 py-2">
-              깐부 추가
-            </button>
+            {announcement ? (
+              <div className="mt-4 rounded-2xl border border-fuchsia-400/20 bg-fuchsia-500/10 p-4 text-left">
+                <div className="text-xs uppercase tracking-[0.2em] text-fuchsia-300">
+                  Announcement
+                </div>
+                <div className="mt-2 text-lg font-semibold">{announcement.title}</div>
+                <div className="mt-2 whitespace-pre-wrap text-sm text-gray-200">
+                  {announcement.body}
+                </div>
+              </div>
+            ) : (
+              <div className="mt-4 rounded-2xl border border-white/10 bg-black/20 p-4 text-sm text-gray-400">
+                현재 등록된 공지가 없어.
+              </div>
+            )}
+          </div>
+
+          <div className="rounded-3xl border border-white/10 bg-white/5 p-6">
+            <div className="flex justify-end gap-2">
+              {!user ? (
+                <>
+                  <button
+                    onClick={() => router.push("/login")}
+                    className="cursor-pointer rounded-xl border border-white/15 bg-white/10 px-4 py-2 transition hover:bg-white/20"
+                  >
+                    로그인
+                  </button>
+                  <button
+                    onClick={() => router.push("/signup")}
+                    className="cursor-pointer rounded-xl border border-white/15 bg-white/10 px-4 py-2 transition hover:bg-white/20"
+                  >
+                    회원가입
+                  </button>
+                </>
+              ) : (
+                <>
+                  <button
+                    onClick={() => router.push("/mypage")}
+                    className="cursor-pointer rounded-xl border border-white/15 bg-white/10 px-4 py-2 transition hover:bg-white/20"
+                  >
+                    마이페이지
+                  </button>
+                  <button
+                    onClick={logout}
+                    className="cursor-pointer rounded-xl border border-white/15 bg-white/10 px-4 py-2 transition hover:bg-white/20"
+                  >
+                    로그아웃
+                  </button>
+                </>
+              )}
+            </div>
+
+            <div className="mt-6">
+              <div className="text-sm font-medium text-gray-300">이용안내</div>
+              <div className="mt-4 space-y-3">
+                {[
+                  "회원가입",
+                  "이메일 인증",
+                  "마이페이지 API 등록",
+                  "캐릭터 등록",
+                ].map((step, index, arr) => (
+                  <div key={step} className="flex items-start gap-3">
+                    <div className="flex flex-col items-center">
+                      <div className="flex h-8 w-8 items-center justify-center rounded-full bg-gradient-to-br from-fuchsia-500 to-violet-500 text-sm font-bold text-white">
+                        {index + 1}
+                      </div>
+                      {index < arr.length - 1 ? (
+                        <div className="mt-1 h-6 w-px bg-white/20" />
+                      ) : null}
+                    </div>
+                    <div className="pt-1 text-sm text-gray-200">{step}</div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+        </header>
+
+        {message ? (
+          <div className="rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-sm text-gray-100">
+            {message}
           </div>
         ) : null}
 
-        {buddies.length === 0 ? (
-          <div className="text-sm text-gray-500">등록된 깐부가 아직 없어.</div>
-        ) : (
-          <div className="space-y-4">
-            {buddies.map((buddy) => (
-              <div key={buddy.buddy_user_id} className="border p-4 rounded-xl">
-                <div className="flex items-center justify-between">
-                  <div>
-                    <div className="font-semibold">
-                      {buddy.display_name ?? buddy.login_id ?? "-"}
-                    </div>
-                    <div className="text-sm text-gray-500">
-                      ID: {buddy.login_id ?? "-"}
-                    </div>
-                    <div className="text-sm text-gray-500">
-                      길드: {buddy.guild_name ?? "-"}
-                    </div>
+        <section className="grid grid-cols-1 gap-4 xl:grid-cols-[1.3fr_0.9fr]">
+          <DashboardCard
+            title="진행중인 레이드"
+            action={
+              user ? (
+                <button
+                  onClick={() => router.push("/mypage")}
+                  className="cursor-pointer rounded-xl border border-white/15 bg-white/10 px-4 py-2 text-sm transition hover:bg-white/20"
+                >
+                  모집 만들기
+                </button>
+              ) : null
+            }
+          >
+            {raidPosts.length === 0 ? (
+              <div className="text-sm text-gray-400">진행중인 모집이 아직 없어.</div>
+            ) : (
+              <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
+                {raidPosts.slice(0, 6).map((post) => {
+                  const recruitableSlots = Math.max((post.max_members ?? 0) - 1, 0);
+                  const visibleApplicants = Math.max(
+                    (post.current_members ?? 0) - 1,
+                    0
+                  );
+
+                  return (
+                    <button
+                      key={post.id}
+                      onClick={() => router.push(`/raid/${post.id}`)}
+                      className="cursor-pointer rounded-2xl border border-white/10 bg-black/20 p-4 text-left transition hover:bg-white/10"
+                    >
+                      <div className="font-semibold text-white">
+                        {post.title ?? post.raid_name}
+                      </div>
+                      <div className="mt-1 text-sm text-gray-400">
+                        {post.raid_name} / {post.difficulty ?? "-"}
+                      </div>
+                      <div className="mt-2 text-sm text-gray-400">
+                        시간: {formatDate(post.raid_time)}
+                      </div>
+                      <div className="text-sm text-gray-400">
+                        신청 인원: {visibleApplicants}/{recruitableSlots}
+                      </div>
+                    </button>
+                  );
+                })}
+              </div>
+            )}
+          </DashboardCard>
+
+          <div className="grid grid-cols-1 gap-4">
+            <DashboardCard title="빠른 액션">
+              <div className="grid grid-cols-1 gap-3">
+                {user ? (
+                  <>
+                    <button
+                      onClick={() => router.push("/mypage")}
+                      className="cursor-pointer rounded-2xl border border-white/10 bg-black/20 px-4 py-3 text-left transition hover:bg-white/10"
+                    >
+                      내 캐릭터 / 모집 관리
+                    </button>
+                    <button
+                      onClick={createBuddyAutoParty}
+                      className="cursor-pointer rounded-2xl border border-white/10 bg-black/20 px-4 py-3 text-left transition hover:bg-white/10"
+                    >
+                      깐부 자동 파티 생성
+                    </button>
+                  </>
+                ) : (
+                  <div className="text-sm text-gray-400">
+                    로그인하면 빠른 액션을 사용할 수 있어.
                   </div>
+                )}
+              </div>
+            </DashboardCard>
+
+            <DashboardCard title="깐부 추가">
+              {user ? (
+                <div className="flex gap-2">
+                  <input
+                    className="flex-1 rounded-xl border border-white/10 bg-black/20 p-3 text-white outline-none"
+                    placeholder="회원가입 ID로 깐부 추가"
+                    value={buddyInput}
+                    onChange={(e) => setBuddyInput(e.target.value)}
+                  />
                   <button
-                    onClick={() => removeBuddy(buddy.buddy_user_id)}
-                    className="border px-3 py-1"
+                    onClick={addBuddy}
+                    className="cursor-pointer rounded-xl border border-white/15 bg-white/10 px-4 py-2 transition hover:bg-white/20"
                   >
-                    깐부 삭제
+                    추가
                   </button>
                 </div>
-              </div>
-            ))}
+              ) : (
+                <div className="text-sm text-gray-400">로그인 후 사용할 수 있어.</div>
+              )}
+            </DashboardCard>
           </div>
-        )}
-      </section>
+        </section>
 
-      <section className="rounded-2xl border p-6 space-y-4">
-        <h2 className="text-xl font-semibold">깐부 골드 캐릭터 목록</h2>
-        {groupedBuddyCharacters().length === 0 ? (
-          <div className="text-sm text-gray-500">깐부 캐릭터 데이터가 아직 없어.</div>
-        ) : (
-          <div className="space-y-6">
-            {groupedBuddyCharacters().map(([buddyUserId, chars]) => {
-              const buddy = buddies.find((b) => b.buddy_user_id === buddyUserId);
-
-              return (
-                <div key={buddyUserId} className="space-y-3">
-                  <div className="text-lg font-semibold">
-                    {buddy?.display_name ?? buddy?.login_id ?? buddyUserId}
+        <section className="grid grid-cols-1 gap-4 xl:grid-cols-[0.95fr_1.05fr]">
+          <DashboardCard
+            title="랭킹목록"
+            action={
+              <button
+                onClick={() => setShowFullRanking((prev) => !prev)}
+                className="cursor-pointer rounded-xl border border-white/15 bg-white/10 px-4 py-2 text-sm transition hover:bg-white/20"
+              >
+                {showFullRanking ? "상세 닫기" : "상세보기"}
+              </button>
+            }
+          >
+            {top10Ranking.length === 0 ? (
+              <div className="text-sm text-gray-400">랭킹 데이터가 아직 없어.</div>
+            ) : (
+              <div className="space-y-2">
+                {top10Ranking.map((row, index) => (
+                  <div
+                    key={row.userId}
+                    className="grid grid-cols-[72px_1fr_1fr_1fr] items-center gap-3 rounded-2xl border border-white/10 bg-black/20 px-4 py-3 text-sm"
+                  >
+                    <div className="font-bold text-center">{medalBadge(index + 1)}</div>
+                    <div className="truncate">{row.className}</div>
+                    <div className="truncate">{row.characterName}</div>
+                    <div className="truncate text-right">
+                      {row.ownerName} / {formatDecimal(row.combatPower)}
+                    </div>
                   </div>
+                ))}
+              </div>
+            )}
 
-                  <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
-                    {chars.map((character) => (
-                      <div
-                        key={character.id}
-                        className={`border p-4 rounded-xl ${
-                          character.gold_exhausted ? "opacity-40" : ""
-                        }`}
-                      >
-                        {character.profile_image_url ? (
-                          <img
-                            src={character.profile_image_url}
-                            width={80}
-                            height={80}
-                            alt={character.character_name ?? "buddy character"}
-                          />
-                        ) : null}
-                        <div className="mt-2 font-semibold">
-                          {character.character_name}
-                        </div>
-                        <div>{character.class_name}</div>
-                        <div>역할: {character.role ?? "-"}</div>
-                        <div>전투력: {formatDecimal(character.combat_power)}</div>
-                        <div>아이템 레벨: {formatDecimal(character.item_level)}</div>
-                        <div>
-                          골드 캐릭터: {character.is_gold_earner ? "예" : "아니오"}
-                        </div>
-                        <div>
-                          예정 골드 레이드: {character.planned_gold_raid ?? "-"}
-                        </div>
-                        <div>
-                          주간 골드 획득: {character.weekly_gold_earned_count}/3
-                        </div>
+            {showFullRanking ? (
+              <div className="mt-4 max-h-[420px] overflow-y-auto rounded-2xl border border-white/10 bg-black/20 p-3">
+                <div className="space-y-2">
+                  {ranking.map((row, index) => (
+                    <div
+                      key={`${row.userId}-${index}`}
+                      className="grid grid-cols-[56px_1fr_1fr_1fr] items-center gap-3 rounded-xl bg-white/5 px-3 py-3 text-sm"
+                    >
+                      <div className="text-center font-semibold">{index + 1}</div>
+                      <div className="truncate">{row.className}</div>
+                      <div className="truncate">{row.characterName}</div>
+                      <div className="truncate text-right">
+                        {row.ownerName} / {formatDecimal(row.combatPower)}
                       </div>
-                    ))}
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-        )}
-      </section>
-
-      <section className="rounded-2xl border p-6 space-y-4">
-        <h2 className="text-xl font-semibold">가입된 회원 목록</h2>
-        {members.length === 0 ? (
-          <div className="text-sm text-gray-500">가입된 회원이 아직 없어.</div>
-        ) : (
-          <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
-            {members.map((member) => (
-              <div key={member.id} className="border p-4 rounded-xl">
-                <div className="font-semibold">
-                  {member.display_name ?? member.login_id ?? "-"}
-                </div>
-                <div className="text-sm text-gray-500">
-                  ID: {member.login_id ?? "-"}
-                </div>
-                <div className="text-sm text-gray-500">
-                  길드: {member.guild_name ?? "-"}
-                </div>
-                <div className="text-sm text-gray-500">
-                  {member.is_alt_account ? "부계정" : "본계정"}
+                    </div>
+                  ))}
                 </div>
               </div>
-            ))}
+            ) : null}
+          </DashboardCard>
+
+          <div className="grid grid-cols-1 gap-4">
+            <DashboardCard title="내 깐부">
+              {buddies.length === 0 ? (
+                <div className="text-sm text-gray-400">등록된 깐부가 아직 없어.</div>
+              ) : (
+                <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
+                  {buddies.slice(0, 6).map((buddy) => (
+                    <div
+                      key={buddy.buddy_user_id}
+                      className="rounded-2xl border border-white/10 bg-black/20 p-4"
+                    >
+                      <div className="font-semibold">
+                        {buddy.display_name ?? buddy.login_id ?? "-"}
+                      </div>
+                      <div className="mt-1 text-sm text-gray-400">
+                        ID: {buddy.login_id ?? "-"}
+                      </div>
+                      <div className="text-sm text-gray-400">
+                        길드: {buddy.guild_name ?? "-"}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </DashboardCard>
+
+            <DashboardCard title="완성된 파티">
+              {completedParties.length === 0 ? (
+                <div className="text-sm text-gray-400">완성된 파티가 아직 없어.</div>
+              ) : (
+                <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
+                  {completedParties.slice(0, 4).map((party) => (
+                    <div
+                      key={party.party_id}
+                      className="rounded-2xl border border-white/10 bg-black/20 p-4"
+                    >
+                      <div className="font-semibold">{party.raid_name ?? "-"}</div>
+                      <div className="mt-1 text-sm text-gray-400">
+                        상태: {party.status}
+                      </div>
+                      <div className="text-sm text-gray-400">
+                        멤버 수: {party.members}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </DashboardCard>
           </div>
-        )}
-      </section>
+        </section>
+
+        <section className="grid grid-cols-1 gap-4 xl:grid-cols-[1fr_1fr]">
+          <DashboardCard title="깐부 골드 캐릭터">
+            {buddyCharacters.length === 0 ? (
+              <div className="text-sm text-gray-400">
+                깐부 캐릭터 데이터가 아직 없어.
+              </div>
+            ) : (
+              <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
+                {buddyCharacters.slice(0, 6).map((character) => (
+                  <div
+                    key={character.id}
+                    className={`rounded-2xl border border-white/10 bg-black/20 p-4 ${
+                      character.gold_exhausted ? "opacity-50" : ""
+                    }`}
+                  >
+                    <div className="font-semibold">{character.character_name}</div>
+                    <div className="mt-1 text-sm text-gray-400">
+                      {character.class_name} / {formatDecimal(character.item_level)}
+                    </div>
+                    <div className="text-sm text-gray-400">
+                      전투력: {formatDecimal(character.combat_power)}
+                    </div>
+                    <div className="text-sm text-gray-400">
+                      예정 레이드: {character.planned_gold_raid ?? "-"}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </DashboardCard>
+
+          <DashboardCard title="대시보드 요약">
+            <div className="grid grid-cols-2 gap-3">
+              {[
+                { label: "진행중 모집", value: raidPosts.length },
+                { label: "완성 파티", value: completedParties.length },
+                { label: "내 깐부", value: buddies.length },
+                { label: "깐부 캐릭터", value: buddyCharacters.length },
+              ].map((item) => (
+                <div
+                  key={item.label}
+                  className="rounded-2xl border border-white/10 bg-black/20 p-4"
+                >
+                  <div className="text-sm text-gray-400">{item.label}</div>
+                  <div className="mt-2 text-2xl font-bold">{item.value}</div>
+                </div>
+              ))}
+            </div>
+          </DashboardCard>
+        </section>
+      </div>
     </main>
   );
 }

@@ -10,16 +10,46 @@ export default function OwnerAnnouncementPanel() {
   const [title, setTitle] = useState("");
   const [body, setBody] = useState("");
   const [message, setMessage] = useState("");
+  const [debugText, setDebugText] = useState("");
 
   useEffect(() => {
     void init();
   }, []);
 
   async function init() {
-    const { data, error } = await supabase.rpc("is_owner_user");
-    if (!error) {
-      setIsOwner(!!data);
+    setLoading(true);
+    setMessage("");
+
+    const { data: ownerData, error: ownerError } = await supabase.rpc("is_owner_user");
+
+    if (ownerError) {
+      setDebugText(`is_owner_user 오류: ${ownerError.message}`);
+      setIsOwner(false);
+      setLoading(false);
+      return;
     }
+
+    setIsOwner(!!ownerData);
+
+    const { data: debugData, error: debugError } = await supabase.rpc("debug_owner_status");
+
+    if (debugError) {
+      setDebugText(`debug_owner_status 오류: ${debugError.message}`);
+    } else if (Array.isArray(debugData) && debugData.length > 0) {
+      const row = debugData[0] as {
+        my_user_id?: string | null;
+        my_login_id?: string | null;
+        owner_login_id?: string | null;
+        is_owner?: boolean;
+      };
+
+      setDebugText(
+        `내 login_id=${row.my_login_id ?? "null"} / owner_login_id=${
+          row.owner_login_id ?? "null"
+        } / is_owner=${String(row.is_owner)}`
+      );
+    }
+
     setLoading(false);
   }
 
@@ -46,8 +76,25 @@ export default function OwnerAnnouncementPanel() {
     setBody("");
   }
 
-  if (loading || !isOwner) {
-    return null;
+  if (loading) {
+    return (
+      <section className="rounded-3xl border border-white/10 bg-white/5 p-6 space-y-3">
+        <h2 className="text-xl font-semibold text-white">오너 공지 관리</h2>
+        <div className="text-sm text-gray-400">오너 권한 확인 중...</div>
+      </section>
+    );
+  }
+
+  if (!isOwner) {
+    return (
+      <section className="rounded-3xl border border-white/10 bg-white/5 p-6 space-y-3">
+        <h2 className="text-xl font-semibold text-white">오너 공지 관리</h2>
+        <div className="text-sm text-red-300">
+          현재 계정은 오너로 판정되지 않았어.
+        </div>
+        <div className="text-xs text-gray-400 whitespace-pre-wrap">{debugText}</div>
+      </section>
+    );
   }
 
   return (
@@ -59,6 +106,8 @@ export default function OwnerAnnouncementPanel() {
           {message}
         </div>
       ) : null}
+
+      <div className="text-xs text-gray-400 whitespace-pre-wrap">{debugText}</div>
 
       <input
         className="w-full rounded-xl border border-white/10 bg-black/30 p-3 text-white outline-none"

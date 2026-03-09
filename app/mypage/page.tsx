@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
+import OwnerAnnouncementPanel from "@/components/OwnerAnnouncementPanel";
 
 type ImportCandidate = {
   id: string;
@@ -629,6 +630,7 @@ export default function MyPage() {
       {message ? (
         <div className="rounded-xl bg-gray-100 px-4 py-3">{message}</div>
       ) : null}
+      <OwnerAnnouncementPanel />
 
       <section className="rounded-2xl border p-6 space-y-4">
         <h2 className="text-xl font-semibold">API Key 저장</h2>

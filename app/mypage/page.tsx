@@ -25,6 +25,36 @@ type Character = {
   planned_gold_raid: string | null;
   weekly_gold_earned_count: number;
   weekly_cleared_raid_bases: string[];
+  role: string | null;
+  gold_exhausted?: boolean | null;
+};
+
+type RaidPost = {
+  id: string;
+  raid_name: string;
+  difficulty: string | null;
+  raid_time: string | null;
+  title: string | null;
+  description: string | null;
+  max_members: number;
+};
+
+type RaidApplication = {
+  id: string;
+  post_id: string;
+  character_id: string;
+  role: string | null;
+  created_at: string;
+};
+
+type BuddyRow = {
+  buddy_user_id: string;
+  login_id: string | null;
+  display_name: string | null;
+  guild_name: string | null;
+  avatar_url: string | null;
+  is_alt_account: boolean | null;
+  created_at: string;
 };
 
 function formatDecimal(value: number | null | undefined) {
@@ -33,6 +63,13 @@ function formatDecimal(value: number | null | undefined) {
     minimumFractionDigits: 0,
     maximumFractionDigits: 2,
   }).format(value);
+}
+
+function formatDate(value: string | null | undefined) {
+  if (!value) return "-";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return value;
+  return date.toLocaleString("ko-KR");
 }
 
 export default function MyPage() {
@@ -46,6 +83,17 @@ export default function MyPage() {
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [characters, setCharacters] = useState<Character[]>([]);
   const [refreshingRegistered, setRefreshingRegistered] = useState(false);
+
+  const [raidName, setRaidName] = useState("");
+  const [difficulty, setDifficulty] = useState("");
+  const [raidTime, setRaidTime] = useState("");
+  const [title, setTitle] = useState("");
+  const [description, setDescription] = useState("");
+  const [maxMembers, setMaxMembers] = useState(8);
+
+  const [myPosts, setMyPosts] = useState<RaidPost[]>([]);
+  const [myApplications, setMyApplications] = useState<RaidApplication[]>([]);
+  const [buddies, setBuddies] = useState<BuddyRow[]>([]);
 
   useEffect(() => {
     void init();
@@ -63,7 +111,14 @@ export default function MyPage() {
       return;
     }
 
-    await Promise.all([loadCandidates(user.id), loadCharacters(user.id)]);
+    await Promise.all([
+      loadCandidates(user.id),
+      loadCharacters(user.id),
+      loadMyPosts(user.id),
+      loadMyApplications(user.id),
+      loadBuddies(),
+    ]);
+
     setLoading(false);
   }
 
@@ -76,7 +131,6 @@ export default function MyPage() {
       .order("item_level", { ascending: false, nullsFirst: false });
 
     if (error) {
-      console.error("[loadCandidates] error:", error);
       setMessage(error.message || "후보 캐릭터 목록을 불러오지 못했어.");
       return;
     }
@@ -94,12 +148,55 @@ export default function MyPage() {
       .order("item_level", { ascending: false, nullsFirst: false });
 
     if (error) {
-      console.error("[loadCharacters] error:", error);
       setMessage(error.message || "등록 캐릭터 목록을 불러오지 못했어.");
       return;
     }
 
     setCharacters((data as Character[]) ?? []);
+  }
+
+  async function loadMyPosts(userId: string) {
+    const { data, error } = await supabase
+      .from("raid_posts")
+      .select("*")
+      .eq("creator_id", userId)
+      .order("created_at", { ascending: false });
+
+    if (error) {
+      setMessage(error.message || "내 모집글 목록을 불러오지 못했어.");
+      return;
+    }
+
+    setMyPosts((data as RaidPost[]) ?? []);
+  }
+
+  async function loadMyApplications(userId: string) {
+    const { data, error } = await supabase
+      .from("raid_post_applications")
+      .select("*")
+      .eq("user_id", userId)
+      .order("created_at", { ascending: false });
+
+    if (error) {
+      setMessage(error.message || "내 신청 목록을 불러오지 못했어.");
+      return;
+    }
+
+    setMyApplications((data as RaidApplication[]) ?? []);
+  }
+
+  async function loadBuddies() {
+    const { data, error } = await supabase
+      .from("v_my_buddies")
+      .select("*")
+      .order("created_at", { ascending: false });
+
+    if (error) {
+      setMessage(error.message || "깐부 목록을 불러오지 못했어.");
+      return;
+    }
+
+    setBuddies((data as BuddyRow[]) ?? []);
   }
 
   async function saveApiKey() {
@@ -132,38 +229,31 @@ export default function MyPage() {
       return;
     }
 
-    try {
-      const res = await fetch("/api/characters/register", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          candidateIds: selectedIds,
-        }),
-      });
+    const res = await fetch("/api/characters/register", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ candidateIds: selectedIds }),
+    });
 
-      const result = await res.json();
+    const result = await res.json();
 
-      if (!res.ok || !result.ok) {
-        setMessage(result.error ?? "캐릭터 등록 실패");
-        return;
-      }
-
-      const {
-        data: { user },
-      } = await supabase.auth.getUser();
-
-      if (user) {
-        await Promise.all([loadCandidates(user.id), loadCharacters(user.id)]);
-      }
-
-      setSelectedIds([]);
-      setMessage(result.message ?? "선택 캐릭터 등록 완료");
-    } catch (error) {
-      console.error("[registerSelectedCharacters] error:", error);
-      setMessage("캐릭터 등록 중 오류가 발생했어.");
+    if (!res.ok || !result.ok) {
+      setMessage(result.error ?? "캐릭터 등록 실패");
+      return;
     }
+
+    const {
+      data: { user },
+    } = await supabase.auth.getUser();
+
+    if (user) {
+      await Promise.all([loadCandidates(user.id), loadCharacters(user.id)]);
+    }
+
+    setSelectedIds([]);
+    setMessage(result.message ?? "선택 캐릭터 등록 완료");
   }
 
   async function refreshRegisteredCharacters() {
@@ -225,6 +315,188 @@ export default function MyPage() {
     }
 
     setMessage("캐릭터 삭제 완료");
+  }
+
+  async function toggleGoldCharacter(characterId: string, current: boolean) {
+    const { error } = await supabase
+      .from("characters")
+      .update({ is_gold_earner: !current })
+      .eq("id", characterId);
+
+    if (error) {
+      setMessage(error.message || "골드 캐릭터 설정 실패");
+      return;
+    }
+
+    const {
+      data: { user },
+    } = await supabase.auth.getUser();
+
+    if (user) {
+      await loadCharacters(user.id);
+    }
+
+    setMessage("골드 캐릭터 설정 완료");
+  }
+
+  async function updatePlannedRaid(characterId: string, value: string) {
+    const { error } = await supabase
+      .from("characters")
+      .update({ planned_gold_raid: value.trim() || null })
+      .eq("id", characterId);
+
+    if (error) {
+      setMessage(error.message || "예정 골드 레이드 저장 실패");
+      return;
+    }
+
+    const {
+      data: { user },
+    } = await supabase.auth.getUser();
+
+    if (user) {
+      await loadCharacters(user.id);
+    }
+
+    setMessage("예정 골드 레이드 저장 완료");
+  }
+
+  async function createRaidPost() {
+    setMessage("");
+
+    const res = await fetch("/api/raid/create", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        raidName,
+        difficulty,
+        raidTime,
+        title,
+        description,
+        maxMembers,
+      }),
+    });
+
+    const result = await res.json();
+
+    if (!res.ok || !result.ok) {
+      setMessage(result.error ?? "레이드 모집 생성 실패");
+      return;
+    }
+
+    setRaidName("");
+    setDifficulty("");
+    setRaidTime("");
+    setTitle("");
+    setDescription("");
+    setMaxMembers(8);
+
+    const {
+      data: { user },
+    } = await supabase.auth.getUser();
+
+    if (user) {
+      await loadMyPosts(user.id);
+    }
+
+    setMessage(result.message ?? "레이드 모집 생성 완료");
+  }
+
+  async function deleteMyPost(postId: string) {
+    const { error } = await supabase
+      .from("raid_posts")
+      .delete()
+      .eq("id", postId);
+
+    if (error) {
+      setMessage(error.message || "모집 삭제 실패");
+      return;
+    }
+
+    const {
+      data: { user },
+    } = await supabase.auth.getUser();
+
+    if (user) {
+      await loadMyPosts(user.id);
+    }
+
+    setMessage("모집 삭제 완료");
+  }
+
+  async function forceCreateParty(postId: string) {
+    const res = await fetch("/api/raid/force-party", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ postId }),
+    });
+
+    const result = await res.json();
+
+    if (!res.ok || !result.ok) {
+      setMessage(result.error ?? "강제 파티 구성 실패");
+      return;
+    }
+
+    setMessage(result.message ?? "강제 파티 구성 완료");
+  }
+
+  async function cancelApplication(applicationId: string) {
+    const res = await fetch("/api/raid/cancel", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ applicationId }),
+    });
+
+    const result = await res.json();
+
+    if (!res.ok || !result.ok) {
+      setMessage(result.error ?? "신청 취소 실패");
+      return;
+    }
+
+    const {
+      data: { user },
+    } = await supabase.auth.getUser();
+
+    if (user) {
+      await loadMyApplications(user.id);
+    }
+
+    setMessage(result.message ?? "신청 취소 완료");
+  }
+
+  async function createBuddyAutoParty() {
+    setMessage("");
+
+    const res = await fetch("/api/buddy/auto-party", {
+      method: "POST",
+    });
+
+    const result = await res.json();
+
+    if (!res.ok || !result.ok) {
+      setMessage(result.error ?? "깐부 자동 파티 생성 실패");
+      return;
+    }
+
+    const {
+      data: { user },
+    } = await supabase.auth.getUser();
+
+    if (user) {
+      await loadMyPosts(user.id);
+    }
+
+    setMessage(
+      `${result.message ?? "깐부 자동 파티 생성 완료"} (${result.createdCount ?? 0}개)`
+    );
   }
 
   if (loading) {
@@ -334,18 +606,173 @@ export default function MyPage() {
         ) : (
           <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
             {characters.map((c) => (
-              <div key={c.id} className="border p-4 rounded-xl">
+              <div
+                key={c.id}
+                className={`border p-4 rounded-xl ${
+                  c.gold_exhausted ? "opacity-40" : ""
+                }`}
+              >
                 <div className="font-semibold">{c.character_name}</div>
                 <div>{c.class_name}</div>
+                <div>역할: {c.role ?? "-"}</div>
                 <div>전투력: {formatDecimal(c.combat_power)}</div>
                 <div>아이템 레벨: {formatDecimal(c.item_level)}</div>
                 <div>주간 골드 획득: {c.weekly_gold_earned_count}/3</div>
 
+                <div className="mt-2 flex flex-wrap gap-2">
+                  <button
+                    onClick={() => toggleGoldCharacter(c.id, c.is_gold_earner)}
+                    className="border px-3 py-1"
+                  >
+                    {c.is_gold_earner ? "골드 캐릭터 해제" : "골드 캐릭터 지정"}
+                  </button>
+                  <button
+                    onClick={() => deleteCharacter(c.id)}
+                    className="border px-3 py-1"
+                  >
+                    삭제
+                  </button>
+                </div>
+
+                <input
+                  className="mt-3 w-full border p-2"
+                  placeholder="예정 골드 레이드"
+                  defaultValue={c.planned_gold_raid ?? ""}
+                  onBlur={(e) => updatePlannedRaid(c.id, e.target.value)}
+                />
+              </div>
+            ))}
+          </div>
+        )}
+      </section>
+
+      <section className="rounded-2xl border p-6 space-y-4">
+        <div className="flex items-center justify-between">
+          <h2 className="text-xl font-semibold">깐부 관리</h2>
+          <button onClick={createBuddyAutoParty} className="border px-4 py-2">
+            깐부 자동 파티 생성
+          </button>
+        </div>
+
+        {buddies.length === 0 ? (
+          <div className="text-sm text-gray-500">등록된 깐부가 아직 없어.</div>
+        ) : (
+          <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+            {buddies.map((buddy) => (
+              <div key={buddy.buddy_user_id} className="border p-4 rounded-xl">
+                <div className="font-semibold">
+                  {buddy.display_name ?? buddy.login_id ?? "-"}
+                </div>
+                <div className="text-sm text-gray-500">
+                  ID: {buddy.login_id ?? "-"}
+                </div>
+                <div className="text-sm text-gray-500">
+                  길드: {buddy.guild_name ?? "-"}
+                </div>
+                <div className="text-sm text-gray-500">
+                  추가일: {formatDate(buddy.created_at)}
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </section>
+
+      <section className="rounded-2xl border p-6 space-y-4">
+        <h2 className="text-xl font-semibold">레이드 모집 생성</h2>
+        <input
+          className="w-full border p-2"
+          placeholder="레이드 이름"
+          value={raidName}
+          onChange={(e) => setRaidName(e.target.value)}
+        />
+        <input
+          className="w-full border p-2"
+          placeholder="난이도"
+          value={difficulty}
+          onChange={(e) => setDifficulty(e.target.value)}
+        />
+        <input
+          className="w-full border p-2"
+          type="datetime-local"
+          value={raidTime}
+          onChange={(e) => setRaidTime(e.target.value)}
+        />
+        <input
+          className="w-full border p-2"
+          placeholder="제목"
+          value={title}
+          onChange={(e) => setTitle(e.target.value)}
+        />
+        <textarea
+          className="w-full border p-2"
+          placeholder="설명"
+          value={description}
+          onChange={(e) => setDescription(e.target.value)}
+        />
+        <input
+          className="w-full border p-2"
+          type="number"
+          min={2}
+          max={8}
+          value={maxMembers}
+          onChange={(e) => setMaxMembers(Number(e.target.value))}
+        />
+        <button onClick={createRaidPost} className="border px-4 py-2">
+          모집 생성
+        </button>
+      </section>
+
+      <section className="rounded-2xl border p-6 space-y-4">
+        <h2 className="text-xl font-semibold">내가 개설한 레이드 모집</h2>
+        {myPosts.length === 0 ? (
+          <div className="text-sm text-gray-500">내가 만든 모집글이 아직 없어.</div>
+        ) : (
+          <div className="space-y-4">
+            {myPosts.map((post) => (
+              <div key={post.id} className="border p-4 rounded-xl">
+                <div className="font-semibold">{post.title ?? post.raid_name}</div>
+                <div>{post.raid_name}</div>
+                <div>난이도: {post.difficulty ?? "-"}</div>
+                <div>시간: {formatDate(post.raid_time)}</div>
+                <div>최대 인원: {post.max_members}</div>
+                <div className="mt-2 flex gap-2">
+                  <button
+                    onClick={() => forceCreateParty(post.id)}
+                    className="border px-3 py-1"
+                  >
+                    강제 파티 구성
+                  </button>
+                  <button
+                    onClick={() => deleteMyPost(post.id)}
+                    className="border px-3 py-1"
+                  >
+                    모집 삭제
+                  </button>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </section>
+
+      <section className="rounded-2xl border p-6 space-y-4">
+        <h2 className="text-xl font-semibold">내 신청 목록</h2>
+        {myApplications.length === 0 ? (
+          <div className="text-sm text-gray-500">신청한 레이드가 아직 없어.</div>
+        ) : (
+          <div className="space-y-4">
+            {myApplications.map((application) => (
+              <div key={application.id} className="border p-4 rounded-xl">
+                <div>모집 ID: {application.post_id}</div>
+                <div>캐릭터 ID: {application.character_id}</div>
+                <div>역할: {application.role ?? "-"}</div>
+                <div>신청 시각: {formatDate(application.created_at)}</div>
                 <button
-                  onClick={() => deleteCharacter(c.id)}
+                  onClick={() => cancelApplication(application.id)}
                   className="mt-2 border px-3 py-1"
                 >
-                  삭제
+                  신청 취소
                 </button>
               </div>
             ))}

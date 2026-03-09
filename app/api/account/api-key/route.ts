@@ -1,0 +1,98 @@
+import { NextRequest, NextResponse } from "next/server";
+import { cookies } from "next/headers";
+import { createServerClient } from "@supabase/ssr";
+
+type SaveApiKeyBody = {
+  apiKey?: string;
+};
+
+export async function POST(req: NextRequest) {
+  try {
+    const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
+    const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+
+    if (!supabaseUrl || !supabaseAnonKey) {
+      return NextResponse.json(
+        {
+          ok: false,
+          error: "Supabase 환경변수가 없습니다.",
+        },
+        { status: 500 }
+      );
+    }
+
+    const cookieStore = await cookies();
+
+    const supabase = createServerClient(supabaseUrl, supabaseAnonKey, {
+      cookies: {
+        get(name: string) {
+          return cookieStore.get(name)?.value;
+        },
+        set() {},
+        remove() {},
+      },
+    });
+
+    const {
+      data: { user },
+      error: authError,
+    } = await supabase.auth.getUser();
+
+    if (authError || !user) {
+      return NextResponse.json(
+        {
+          ok: false,
+          error: "로그인이 필요합니다.",
+        },
+        { status: 401 }
+      );
+    }
+
+    const body = (await req.json().catch(() => ({}))) as SaveApiKeyBody;
+    const apiKey = body.apiKey?.trim();
+
+    if (!apiKey) {
+      return NextResponse.json(
+        {
+          ok: false,
+          error: "API Key를 입력해줘.",
+        },
+        { status: 400 }
+      );
+    }
+
+    const { error } = await supabase.rpc("set_lostark_api_key", {
+      p_api_key: apiKey,
+    });
+
+    if (error) {
+      console.error("[/api/account/api-key] rpc error:", error);
+
+      return NextResponse.json(
+        {
+          ok: false,
+          error: error.message || "API Key 저장 실패",
+        },
+        { status: 400 }
+      );
+    }
+
+    return NextResponse.json({
+      ok: true,
+      message: "API Key 저장 완료",
+    });
+  } catch (error) {
+    console.error("[/api/account/api-key] error:", error);
+
+    return NextResponse.json(
+      {
+        ok: false,
+        error:
+          error instanceof Error
+            ? error.message
+            : "API Key 저장 중 알 수 없는 오류가 발생했습니다.",
+      },
+      { status: 500 }
+    );
+  }
+}

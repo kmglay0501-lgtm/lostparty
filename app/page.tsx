@@ -357,7 +357,7 @@ export default function HomePage() {
               </div>
             </button>
             <p className="mt-3 text-sm text-gray-400">
-              로스트아크 길드 파티 모집과 자동 파티 편성을 한눈에 보는 대시보드
+              로스트아크 파티매칭 플랫폼 개인 프로젝트입니다.
             </p>
           </div>
 

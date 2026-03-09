@@ -19,12 +19,20 @@ type RaidPost = {
   max_members: number;
 };
 
-type RaidApplication = {
+type RaidApplicationDetail = {
   id: string;
+  post_id: string;
   user_id: string;
   character_id: string;
   role: string | null;
   created_at: string;
+  character_name: string | null;
+  class_name: string | null;
+  item_level: number | null;
+  combat_power: number | null;
+  class_engraving: string | null;
+  synergy_labels: string[] | null;
+  owner_name: string | null;
 };
 
 type Character = {
@@ -36,9 +44,10 @@ type Character = {
   item_level: number | null;
 };
 
-type PartyMember = {
+type PartyMemberDetail = {
   id: string;
   party_id: string;
+  post_id: string;
   user_id: string | null;
   character_id: string | null;
   role: string | null;
@@ -46,17 +55,13 @@ type PartyMember = {
   created_at: string;
   party_number: number | null;
   slot_number: number | null;
-};
-
-type CharacterLite = {
-  id: string;
   character_name: string | null;
   class_name: string | null;
-  role: string | null;
   item_level: number | null;
   combat_power: number | null;
   class_engraving: string | null;
   synergy_labels: string[] | null;
+  owner_name: string | null;
 };
 
 function formatDecimal(value: number | null | undefined) {
@@ -68,36 +73,40 @@ function formatDecimal(value: number | null | undefined) {
 }
 
 function formatDate(value: string | null | undefined) {
-  if (!value) return "-";
+  if (!value) return "미정";
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return value;
   return date.toLocaleString("ko-KR");
 }
 
-function getSynergyLabels(character: CharacterLite | null | undefined) {
-  if (!character) return [];
-  if (character.synergy_labels && character.synergy_labels.length > 0) {
-    return character.synergy_labels;
+function getSynergyLabels(row: {
+  class_name: string | null;
+  class_engraving: string | null;
+  synergy_labels: string[] | null;
+}) {
+  if (row.synergy_labels && row.synergy_labels.length > 0) {
+    return row.synergy_labels;
   }
+
   return inferSynergyLabelsFromClassEngraving(
-    character.class_name,
-    character.class_engraving
+    row.class_name,
+    row.class_engraving
   );
 }
 
 function SlotDetailCard({
   slotLabel,
   member,
-  character,
 }: {
   slotLabel: string;
-  member: PartyMember;
-  character: CharacterLite | null;
+  member: PartyMemberDetail;
 }) {
-  const synergyLabels = getSynergyLabels(character);
+  const synergyLabels = getSynergyLabels(member);
   const roleLabel = member.is_dummy
-    ? member.role ?? "-"
-    : formatRoleLabel(member.role ?? character?.role);
+    ? member.role === "support"
+      ? "💚 서포터"
+      : "딜러"
+    : formatRoleLabel(member.role);
 
   return (
     <div className="rounded-2xl border border-white/10 bg-white/5 p-4 space-y-2">
@@ -111,26 +120,26 @@ function SlotDetailCard({
       ) : (
         <>
           <div className="text-lg font-semibold">
-            {character?.character_name ?? member.character_id ?? "-"}
+            {member.character_name ?? "-"}
           </div>
           <div className="text-sm text-gray-400">
-            {character?.class_name ?? "-"}
+            {member.class_name ?? "-"} / {member.owner_name ?? "-"}
           </div>
 
           <div className="grid grid-cols-2 gap-2 text-sm">
             <div className="rounded-xl bg-black/20 px-3 py-2">
               <div className="text-gray-400">레벨</div>
-              <div>{formatDecimal(character?.item_level)}</div>
+              <div>{formatDecimal(member.item_level)}</div>
             </div>
             <div className="rounded-xl bg-black/20 px-3 py-2">
               <div className="text-gray-400">전투력</div>
-              <div>{formatDecimal(character?.combat_power)}</div>
+              <div>{formatDecimal(member.combat_power)}</div>
             </div>
           </div>
 
           <div className="rounded-xl bg-black/20 px-3 py-2 text-sm">
             <div className="text-gray-400">직업각인</div>
-            <div>{character?.class_engraving ?? "-"}</div>
+            <div>{member.class_engraving ?? "-"}</div>
           </div>
 
           <div className="rounded-xl bg-black/20 px-3 py-2 text-sm">
@@ -152,13 +161,10 @@ export default function RaidDetailPage() {
 
   const [user, setUser] = useState<any>(null);
   const [post, setPost] = useState<RaidPost | null>(null);
-  const [applications, setApplications] = useState<RaidApplication[]>([]);
+  const [applications, setApplications] = useState<RaidApplicationDetail[]>([]);
   const [characters, setCharacters] = useState<Character[]>([]);
   const [selectedCharacterId, setSelectedCharacterId] = useState("");
-  const [partyMembers, setPartyMembers] = useState<PartyMember[]>([]);
-  const [characterMap, setCharacterMap] = useState<Record<string, CharacterLite>>(
-    {}
-  );
+  const [partyMembers, setPartyMembers] = useState<PartyMemberDetail[]>([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -174,71 +180,24 @@ export default function RaidDetailPage() {
 
     setUser(user ?? null);
 
-    const [postRes, applicationRes, partyRes] = await Promise.all([
+    const [postRes, applicationRes, partyMemberRes] = await Promise.all([
       supabase.from("raid_posts").select("*").eq("id", params.id).maybeSingle(),
       supabase
-        .from("raid_post_applications")
+        .from("v_raid_post_application_details")
         .select("*")
         .eq("post_id", params.id)
         .order("created_at", { ascending: true }),
       supabase
-        .from("raid_parties")
-        .select("id")
+        .from("v_raid_party_member_details")
+        .select("*")
         .eq("post_id", params.id)
-        .order("created_at", { ascending: false })
-        .limit(1)
-        .maybeSingle(),
+        .order("party_number", { ascending: true })
+        .order("slot_number", { ascending: true }),
     ]);
 
-    const nextPost = (postRes.data as RaidPost | null) ?? null;
-    const nextApplications = (applicationRes.data as RaidApplication[]) ?? [];
-
-    setPost(nextPost);
-    setApplications(nextApplications);
-
-    let nextPartyMembers: PartyMember[] = [];
-
-    if (partyRes.data?.id) {
-      const { data: partyMemberData } = await supabase
-        .from("raid_party_members")
-        .select("*")
-        .eq("party_id", partyRes.data.id)
-        .order("party_number", { ascending: true })
-        .order("slot_number", { ascending: true });
-
-      nextPartyMembers = (partyMemberData as PartyMember[]) ?? [];
-      setPartyMembers(nextPartyMembers);
-    } else {
-      setPartyMembers([]);
-    }
-
-    const characterIds = Array.from(
-      new Set(
-        [
-          ...nextApplications.map((row) => row.character_id),
-          ...nextPartyMembers
-            .map((row) => row.character_id)
-            .filter((value): value is string => !!value),
-        ].filter((value): value is string => !!value)
-      )
-    );
-
-    if (characterIds.length > 0) {
-      const { data: characterInfo } = await supabase
-        .from("characters")
-        .select(
-          "id, character_name, class_name, role, item_level, combat_power, class_engraving, synergy_labels"
-        )
-        .in("id", characterIds);
-
-      const map: Record<string, CharacterLite> = {};
-      for (const row of (characterInfo as CharacterLite[]) ?? []) {
-        map[row.id] = row;
-      }
-      setCharacterMap(map);
-    } else {
-      setCharacterMap({});
-    }
+    setPost((postRes.data as RaidPost | null) ?? null);
+    setApplications((applicationRes.data as RaidApplicationDetail[]) ?? []);
+    setPartyMembers((partyMemberRes.data as PartyMemberDetail[]) ?? []);
 
     if (user) {
       const { data: characterData } = await supabase
@@ -312,7 +271,7 @@ export default function RaidDetailPage() {
     : null;
   const isCreator = !!user && user.id === post.creator_id;
 
-  const groupedPartyMembers = partyMembers.reduce<Record<number, PartyMember[]>>(
+  const groupedPartyMembers = partyMembers.reduce<Record<number, PartyMemberDetail[]>>(
     (acc, member) => {
       const partyNumber = member.party_number ?? 1;
       if (!acc[partyNumber]) acc[partyNumber] = [];
@@ -331,7 +290,7 @@ export default function RaidDetailPage() {
           </h1>
           <button
             onClick={() => router.push("/")}
-            className="rounded-xl border border-white/15 bg-white/5 px-4 py-2"
+            className="cursor-pointer rounded-xl border border-white/15 bg-white/5 px-4 py-2"
           >
             메인으로
           </button>
@@ -384,7 +343,7 @@ export default function RaidDetailPage() {
 
                 <button
                   onClick={applyToRaid}
-                  className="rounded-xl border border-white/15 bg-white/5 px-4 py-2"
+                  className="cursor-pointer rounded-xl border border-white/15 bg-white/5 px-4 py-2"
                 >
                   신청하기
                 </button>
@@ -404,8 +363,7 @@ export default function RaidDetailPage() {
           ) : (
             <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
               {applicantApplications.map((application) => {
-                const character = characterMap[application.character_id];
-                const synergyLabels = getSynergyLabels(character);
+                const synergyLabels = getSynergyLabels(application);
 
                 return (
                   <div
@@ -413,30 +371,31 @@ export default function RaidDetailPage() {
                     className="rounded-2xl border border-white/10 bg-white/5 p-4 space-y-2"
                   >
                     <div className="text-lg font-semibold">
-                      {character?.character_name ?? application.character_id}
+                      {application.character_name ?? "-"}
                     </div>
                     <div className="text-sm text-gray-400">
-                      {character?.class_name ?? "-"} /{" "}
-                      {formatRoleLabel(application.role ?? character?.role)}
+                      {application.class_name ?? "-"} / {application.owner_name ?? "-"} /{" "}
+                      {formatRoleLabel(application.role)}
                     </div>
+
                     <div className="grid grid-cols-2 gap-2 text-sm">
                       <div className="rounded-xl bg-black/20 px-3 py-2">
                         <div className="text-gray-400">레벨</div>
-                        <div>{formatDecimal(character?.item_level)}</div>
+                        <div>{formatDecimal(application.item_level)}</div>
                       </div>
                       <div className="rounded-xl bg-black/20 px-3 py-2">
                         <div className="text-gray-400">전투력</div>
-                        <div>{formatDecimal(character?.combat_power)}</div>
+                        <div>{formatDecimal(application.combat_power)}</div>
                       </div>
                     </div>
+
                     <div className="rounded-xl bg-black/20 px-3 py-2 text-sm">
                       <div className="text-gray-400">시너지</div>
                       <div>
-                        {synergyLabels.length > 0
-                          ? synergyLabels.join(" / ")
-                          : "-"}
+                        {synergyLabels.length > 0 ? synergyLabels.join(" / ") : "-"}
                       </div>
                     </div>
+
                     <div className="text-sm text-gray-500">
                       신청 시간: {formatDate(application.created_at)}
                     </div>
@@ -466,22 +425,15 @@ export default function RaidDetailPage() {
                           (a, b) =>
                             (a.slot_number ?? 99) - (b.slot_number ?? 99)
                         )
-                        .map((member) => {
-                          const character = member.character_id
-                            ? characterMap[member.character_id] ?? null
-                            : null;
-
-                          return (
-                            <SlotDetailCard
-                              key={member.id}
-                              slotLabel={`${member.party_number ?? "-"}파티 ${
-                                member.slot_number ?? "-"
-                              }번`}
-                              member={member}
-                              character={character}
-                            />
-                          );
-                        })}
+                        .map((member) => (
+                          <SlotDetailCard
+                            key={member.id}
+                            slotLabel={`${member.party_number ?? "-"}파티 ${
+                              member.slot_number ?? "-"
+                            }번`}
+                            member={member}
+                          />
+                        ))}
                     </div>
                   </div>
                 ))}

@@ -34,6 +34,11 @@ type BuddyRow = {
   created_at: string;
 };
 
+type ApiKeyStatus = {
+  hasApiKey: boolean;
+  maskedApiKey: string | null;
+};
+
 function formatDecimal(value: number | null | undefined) {
   if (value === null || value === undefined) return "-";
   return new Intl.NumberFormat("ko-KR", {
@@ -49,6 +54,13 @@ export default function MyPage() {
   const [loading, setLoading] = useState(true);
   const [message, setMessage] = useState("");
   const [apiKeyInput, setApiKeyInput] = useState("");
+  const [apiKeyStatus, setApiKeyStatus] = useState<ApiKeyStatus>({
+    hasApiKey: false,
+    maskedApiKey: null,
+  });
+  const [editingApiKey, setEditingApiKey] = useState(false);
+  const [savingApiKey, setSavingApiKey] = useState(false);
+  const [deletingApiKey, setDeletingApiKey] = useState(false);
   const [characters, setCharacters] = useState<Character[]>([]);
   const [buddies, setBuddies] = useState<BuddyRow[]>([]);
   const [refreshingRegistered, setRefreshingRegistered] = useState(false);
@@ -70,8 +82,42 @@ export default function MyPage() {
       return;
     }
 
-    await Promise.all([loadCharacters(user.id), loadBuddies()]);
+    await Promise.all([
+      loadCharacters(user.id),
+      loadBuddies(),
+      loadApiKeyStatus(),
+    ]);
+
     setLoading(false);
+  }
+
+  async function loadApiKeyStatus() {
+    try {
+      const res = await fetch("/api/account/api-key", {
+        method: "GET",
+      });
+
+      const result = await res.json();
+
+      if (!res.ok || !result.ok) {
+        setApiKeyStatus({
+          hasApiKey: false,
+          maskedApiKey: null,
+        });
+        return;
+      }
+
+      setApiKeyStatus({
+        hasApiKey: !!result.hasApiKey,
+        maskedApiKey: result.maskedApiKey ?? null,
+      });
+    } catch (error) {
+      console.error("[loadApiKeyStatus] error:", error);
+      setApiKeyStatus({
+        hasApiKey: false,
+        maskedApiKey: null,
+      });
+    }
   }
 
   async function loadCharacters(userId: string) {
@@ -107,24 +153,68 @@ export default function MyPage() {
 
   async function saveApiKey() {
     setMessage("");
+    setSavingApiKey(true);
 
-    const res = await fetch("/api/account/api-key", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({ apiKey: apiKeyInput.trim() }),
-    });
+    try {
+      const res = await fetch("/api/account/api-key", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ apiKey: apiKeyInput.trim() }),
+      });
 
-    const result = await res.json();
+      const result = await res.json();
 
-    if (!res.ok || !result.ok) {
-      setMessage(result.error ?? "API Key 저장 실패");
-      return;
+      if (!res.ok || !result.ok) {
+        setMessage(result.error ?? "API Key 저장 실패");
+        return;
+      }
+
+      setApiKeyStatus({
+        hasApiKey: !!result.hasApiKey,
+        maskedApiKey: result.maskedApiKey ?? null,
+      });
+      setApiKeyInput("");
+      setEditingApiKey(false);
+      setMessage(result.message ?? "API Key 저장 완료");
+    } catch (error) {
+      console.error("[saveApiKey] error:", error);
+      setMessage("API Key 저장 중 오류가 발생했어.");
+    } finally {
+      setSavingApiKey(false);
     }
+  }
 
-    setApiKeyInput("");
-    setMessage(result.message ?? "API Key 저장 완료");
+  async function deleteApiKey() {
+    setMessage("");
+    setDeletingApiKey(true);
+
+    try {
+      const res = await fetch("/api/account/api-key", {
+        method: "DELETE",
+      });
+
+      const result = await res.json();
+
+      if (!res.ok || !result.ok) {
+        setMessage(result.error ?? "API Key 삭제 실패");
+        return;
+      }
+
+      setApiKeyStatus({
+        hasApiKey: false,
+        maskedApiKey: null,
+      });
+      setApiKeyInput("");
+      setEditingApiKey(false);
+      setMessage(result.message ?? "API Key 삭제 완료");
+    } catch (error) {
+      console.error("[deleteApiKey] error:", error);
+      setMessage("API Key 삭제 중 오류가 발생했어.");
+    } finally {
+      setDeletingApiKey(false);
+    }
   }
 
   async function refreshRegisteredCharacters() {
@@ -260,21 +350,78 @@ export default function MyPage() {
       <OwnerAnnouncementPanel />
 
       <section className="grid grid-cols-1 gap-4 xl:grid-cols-2">
-        <PageCard title="로스트아크 API Key 저장">
-          <div className="space-y-3">
-            <input
-              type="password"
-              value={apiKeyInput}
-              onChange={(e) => setApiKeyInput(e.target.value)}
-              className="w-full rounded-xl border border-white/10 bg-black/30 p-3 text-white outline-none"
-              placeholder="bearer 포함 또는 제외 가능"
-            />
-            <button
-              onClick={saveApiKey}
-              className="cursor-pointer rounded-xl border border-white/15 bg-white/10 px-4 py-2 transition hover:bg-white/20"
-            >
-              저장
-            </button>
+        <PageCard title="로스트아크 API Key 관리">
+          <div className="space-y-4">
+            {apiKeyStatus.hasApiKey && !editingApiKey ? (
+              <>
+                <div className="rounded-2xl border border-white/10 bg-black/20 px-4 py-4">
+                  <div className="text-sm text-gray-400">저장된 API Key</div>
+                  <div className="mt-2 font-mono text-base text-white">
+                    {apiKeyStatus.maskedApiKey ?? "-"}
+                  </div>
+                </div>
+
+                <div className="flex gap-2">
+                  <button
+                    onClick={() => setEditingApiKey(true)}
+                    className="cursor-pointer rounded-xl border border-white/15 bg-white/10 px-4 py-2 transition hover:bg-white/20"
+                  >
+                    수정
+                  </button>
+                  <button
+                    onClick={deleteApiKey}
+                    disabled={deletingApiKey}
+                    className="cursor-pointer rounded-xl border border-red-400/20 bg-red-500/10 px-4 py-2 text-red-200 transition hover:bg-red-500/20 disabled:opacity-50"
+                  >
+                    {deletingApiKey ? "삭제 중..." : "삭제"}
+                  </button>
+                </div>
+              </>
+            ) : (
+              <>
+                <div className="text-sm text-gray-400">
+                  {apiKeyStatus.hasApiKey
+                    ? "새 API Key를 입력해서 수정해줘."
+                    : "아직 저장된 API Key가 없어."}
+                </div>
+
+                <input
+                  type="password"
+                  value={apiKeyInput}
+                  onChange={(e) => setApiKeyInput(e.target.value)}
+                  className="w-full rounded-xl border border-white/10 bg-black/30 p-3 text-white outline-none"
+                  placeholder="bearer 포함 또는 제외 가능"
+                />
+
+                <div className="flex gap-2">
+                  <button
+                    onClick={saveApiKey}
+                    disabled={savingApiKey}
+                    className="cursor-pointer rounded-xl border border-white/15 bg-white/10 px-4 py-2 transition hover:bg-white/20 disabled:opacity-50"
+                  >
+                    {savingApiKey
+                      ? apiKeyStatus.hasApiKey
+                        ? "수정 중..."
+                        : "저장 중..."
+                      : apiKeyStatus.hasApiKey
+                      ? "수정 저장"
+                      : "저장"}
+                  </button>
+
+                  {apiKeyStatus.hasApiKey ? (
+                    <button
+                      onClick={() => {
+                        setEditingApiKey(false);
+                        setApiKeyInput("");
+                      }}
+                      className="cursor-pointer rounded-xl border border-white/15 bg-white/10 px-4 py-2 transition hover:bg-white/20"
+                    >
+                      취소
+                    </button>
+                  ) : null}
+                </div>
+              </>
+            )}
           </div>
         </PageCard>
 

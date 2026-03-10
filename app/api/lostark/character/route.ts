@@ -289,30 +289,63 @@ export async function POST(req: NextRequest) {
 
       const rows = (registeredCharacters as CharacterRow[]) ?? [];
       let updatedCount = 0;
+      const failures: Array<{
+        characterName: string;
+        step: string;
+        status?: number;
+        text?: string;
+        updateError?: string;
+      }> = [];
 
       for (const row of rows) {
         const originalCharacterName = row.character_name?.trim();
         const apiCharacterName = normalizeCharacterNameForApi(originalCharacterName);
 
-        if (!apiCharacterName) continue;
+        if (!apiCharacterName) {
+          failures.push({
+            characterName: originalCharacterName ?? "",
+            step: "normalizeCharacterNameForApi",
+            text: "캐릭터명이 비어 있음",
+          });
+          continue;
+        }
 
         const [profileRes, arkPassiveRes] = await Promise.all([
           fetchCharacterProfile(apiKey, apiCharacterName),
           fetchCharacterArkPassive(apiKey, apiCharacterName),
         ]);
 
-        const profile = profileRes.ok ? profileRes.data : null;
+        if (!profileRes.ok) {
+          failures.push({
+            characterName: apiCharacterName,
+            step: "profiles",
+            status: profileRes.status,
+            text: profileRes.text,
+          });
+          continue;
+        }
+
+        const profile = profileRes.data;
         const arkPassive = arkPassiveRes.ok ? arkPassiveRes.data : null;
 
-        const nextClassName = profile?.CharacterClassName ?? row.class_name ?? null;
-        const nextServerName = profile?.ServerName ?? row.server_name ?? null;
+        if (!arkPassiveRes.ok) {
+          failures.push({
+            characterName: apiCharacterName,
+            step: "arkpassive",
+            status: arkPassiveRes.status,
+            text: arkPassiveRes.text,
+          });
+        }
+
+        const nextClassName = profile.CharacterClassName ?? row.class_name ?? null;
+        const nextServerName = profile.ServerName ?? row.server_name ?? null;
         const nextItemLevel =
-          parseItemLevel(profile?.ItemAvgLevel) ?? row.item_level ?? null;
+          parseItemLevel(profile.ItemAvgLevel) ?? row.item_level ?? null;
         const nextCombatPower =
-          typeof profile?.CombatPower === "number"
+          typeof profile.CombatPower === "number"
             ? profile.CombatPower
             : row.combat_power ?? null;
-        const nextProfileImage = profile?.CharacterImage ?? null;
+        const nextProfileImage = profile.CharacterImage ?? null;
 
         const nextClassEngraving =
           extractClassEngravingFromArkPassive(arkPassive) ?? null;
@@ -347,18 +380,30 @@ export async function POST(req: NextRequest) {
             synergy_labels: nextSynergyLabels,
             role_source: nextClassEngraving ? "arkpassive_title" : "fallback",
             synergy_updated_at: new Date().toISOString(),
+            updated_at: new Date().toISOString(),
           })
           .eq("id", row.id);
 
-        if (!updateError) {
-          updatedCount += 1;
+        if (updateError) {
+          failures.push({
+            characterName: apiCharacterName,
+            step: "db_update",
+            updateError: updateError.message,
+          });
+          continue;
         }
+
+        updatedCount += 1;
       }
 
       return NextResponse.json({
         ok: true,
         updatedCount,
-        message: "등록 캐릭터 갱신 완료",
+        failures,
+        message:
+          failures.length > 0
+            ? `등록 캐릭터 갱신 완료 (${updatedCount}명 성공, ${failures.length}명 실패)`
+            : "등록 캐릭터 갱신 완료",
       });
     }
 

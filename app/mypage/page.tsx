@@ -103,6 +103,9 @@ export default function MyPage() {
   const [savingApiKey, setSavingApiKey] = useState(false);
   const [deletingApiKey, setDeletingApiKey] = useState(false);
 
+  const [syncCharacterName, setSyncCharacterName] = useState("");
+  const [syncingCandidates, setSyncingCandidates] = useState(false);
+
   const [candidates, setCandidates] = useState<ImportCandidate[]>([]);
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
 
@@ -326,6 +329,54 @@ export default function MyPage() {
       setMessage("API Key 삭제 중 오류가 발생했어.");
     } finally {
       setDeletingApiKey(false);
+    }
+  }
+
+  async function syncCandidatesByCharacterName() {
+    setMessage("");
+
+    if (!syncCharacterName.trim()) {
+      setMessage("대표 캐릭터명을 입력해줘.");
+      return;
+    }
+
+    setSyncingCandidates(true);
+
+    try {
+      const res = await fetch("/api/lostark/character", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          mode: "sync-candidates",
+          characterName: syncCharacterName.trim(),
+        }),
+      });
+
+      const result = await res.json();
+
+      if (!res.ok || !result.ok) {
+        setMessage(result.error ?? "원정대 후보 불러오기 실패");
+        return;
+      }
+
+      const {
+        data: { user },
+      } = await supabase.auth.getUser();
+
+      if (user) {
+        await loadCandidates(user.id);
+      }
+
+      setMessage(
+        `${result.message ?? "원정대 후보 불러오기 완료"} (${result.importedCount ?? 0}명)`
+      );
+    } catch (error) {
+      console.error("[syncCandidatesByCharacterName] error:", error);
+      setMessage("원정대 후보 불러오기 중 오류가 발생했어.");
+    } finally {
+      setSyncingCandidates(false);
     }
   }
 
@@ -659,7 +710,13 @@ export default function MyPage() {
       title="마이페이지"
       subtitle="계정 등록, 캐릭터 등록, 모집 관리"
       rightSlot={
-        <div className="flex h-full items-start justify-end">
+        <div className="flex h-full items-start justify-end gap-2">
+          <button
+            onClick={() => router.push("/buddy-raids")}
+            className="cursor-pointer rounded-xl border border-white/15 bg-white/10 px-4 py-2 transition hover:bg-white/20"
+          >
+            깐부 레이드
+          </button>
           <button
             onClick={() => router.push("/")}
             className="cursor-pointer rounded-xl border border-white/15 bg-white/10 px-4 py-2 transition hover:bg-white/20"
@@ -780,6 +837,22 @@ export default function MyPage() {
           </button>
         }
       >
+        <div className="mb-4 flex gap-2">
+          <input
+            className="flex-1 rounded-xl border border-white/10 bg-black/30 p-3 text-white outline-none"
+            placeholder="대표 캐릭터명을 입력해줘"
+            value={syncCharacterName}
+            onChange={(e) => setSyncCharacterName(e.target.value)}
+          />
+          <button
+            onClick={syncCandidatesByCharacterName}
+            disabled={syncingCandidates}
+            className="cursor-pointer rounded-xl border border-white/15 bg-white/10 px-4 py-2 transition hover:bg-white/20 disabled:opacity-50"
+          >
+            {syncingCandidates ? "불러오는 중..." : "원정대 불러오기"}
+          </button>
+        </div>
+
         {candidates.length === 0 ? (
           <div className="text-sm text-gray-400">
             아직 불러온 후보 캐릭터가 없어. 대표 캐릭터 기준 동기화를 먼저 해줘.

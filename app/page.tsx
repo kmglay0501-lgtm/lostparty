@@ -128,15 +128,6 @@ function formatDate(value: string | null | undefined) {
   return date.toLocaleString("ko-KR");
 }
 
-function getCurrentWeekLabel() {
-  const now = new Date();
-  const start = new Date(now.getFullYear(), 0, 1);
-  const diff = now.getTime() - start.getTime();
-  const day = Math.floor(diff / (1000 * 60 * 60 * 24));
-  const week = Math.ceil((day + start.getDay() + 1) / 7);
-  return `${now.getFullYear()}년 ${week}주차`;
-}
-
 function medalBadge(rank: number) {
   if (rank === 1) return "🥇 1";
   if (rank === 2) return "🥈 2";
@@ -347,7 +338,7 @@ export default function HomePage() {
     }
 
     setMessage(
-      `${result.message ?? "깐부 자동 파티 생성 완료"} (${result.createdCount ?? 0}개)`
+      `${result.message ?? "깐부 자동 파티 생성 완료"} (${result.createdCount ?? result.created ?? 0}개)`
     );
     await init();
   }
@@ -357,7 +348,6 @@ export default function HomePage() {
     router.replace("/login");
   }
 
-  const weekLabel = getCurrentWeekLabel();
   const top10Ranking = ranking.slice(0, 10);
   const top10BuddyGold = buddyCharacters.slice(0, 10);
 
@@ -371,87 +361,42 @@ export default function HomePage() {
 
   return (
     <AppShell
+      announcementTitle={announcement?.title ?? null}
+      announcementBody={announcement?.body ?? null}
       rightSlot={
-        <div className="space-y-6">
-          <div className="flex justify-end gap-2">
-            {!user ? (
-              <>
-                <button
-                  onClick={() => router.push("/login")}
-                  className="cursor-pointer rounded-xl border border-white/15 bg-white/10 px-4 py-2 transition hover:bg-white/20"
-                >
-                  로그인
-                </button>
-                <button
-                  onClick={() => router.push("/signup")}
-                  className="cursor-pointer rounded-xl border border-white/15 bg-white/10 px-4 py-2 transition hover:bg-white/20"
-                >
-                  회원가입
-                </button>
-              </>
-            ) : (
-              <>
-                <button
-                  onClick={() => router.push("/mypage")}
-                  className="cursor-pointer rounded-xl border border-white/15 bg-white/10 px-4 py-2 transition hover:bg-white/20"
-                >
-                  마이페이지
-                </button>
-                <button
-                  onClick={logout}
-                  className="cursor-pointer rounded-xl border border-white/15 bg-white/10 px-4 py-2 transition hover:bg-white/20"
-                >
-                  로그아웃
-                </button>
-              </>
-            )}
-          </div>
-
-          <div className="text-center">
-            <div className="text-sm text-gray-400">현재 진행 주차</div>
-            <div className="mt-2 text-3xl font-bold text-white">{weekLabel}</div>
-          </div>
-
-          {announcement ? (
-            <div className="rounded-2xl border border-fuchsia-400/20 bg-fuchsia-500/10 p-4 text-left">
-              <div className="text-xs uppercase tracking-[0.2em] text-fuchsia-300">
-                Announcement
-              </div>
-              <div className="mt-2 text-lg font-semibold">{announcement.title}</div>
-              <div className="mt-2 whitespace-pre-wrap text-sm text-gray-200">
-                {announcement.body}
-              </div>
-            </div>
+        <>
+          {!user ? (
+            <>
+              <button
+                onClick={() => router.push("/login")}
+                className="cursor-pointer rounded-xl border border-white/15 bg-white/10 px-4 py-2 transition hover:bg-white/20"
+              >
+                로그인
+              </button>
+              <button
+                onClick={() => router.push("/signup")}
+                className="cursor-pointer rounded-xl border border-white/15 bg-white/10 px-4 py-2 transition hover:bg-white/20"
+              >
+                회원가입
+              </button>
+            </>
           ) : (
-            <div className="rounded-2xl border border-white/10 bg-black/20 p-4 text-sm text-gray-400">
-              현재 등록된 공지가 없어.
-            </div>
+            <>
+              <button
+                onClick={() => router.push("/mypage")}
+                className="cursor-pointer rounded-xl border border-white/15 bg-white/10 px-4 py-2 transition hover:bg-white/20"
+              >
+                마이페이지
+              </button>
+              <button
+                onClick={logout}
+                className="cursor-pointer rounded-xl border border-white/15 bg-white/10 px-4 py-2 transition hover:bg-white/20"
+              >
+                로그아웃
+              </button>
+            </>
           )}
-
-          <div>
-            <div className="text-sm font-medium text-gray-300">이용안내</div>
-            <div className="mt-4 space-y-3">
-              {[
-                "회원가입",
-                "이메일 인증",
-                "마이페이지 API 등록",
-                "캐릭터 등록",
-              ].map((step, index, arr) => (
-                <div key={step} className="flex items-start gap-3">
-                  <div className="flex flex-col items-center">
-                    <div className="flex h-8 w-8 items-center justify-center rounded-full bg-gradient-to-br from-fuchsia-500 to-violet-500 text-sm font-bold text-white">
-                      {index + 1}
-                    </div>
-                    {index < arr.length - 1 ? (
-                      <div className="mt-1 h-6 w-px bg-white/20" />
-                    ) : null}
-                  </div>
-                  <div className="pt-1 text-sm text-gray-200">{step}</div>
-                </div>
-              ))}
-            </div>
-          </div>
-        </div>
+        </>
       }
     >
       {message ? (

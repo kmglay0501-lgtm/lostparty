@@ -7,24 +7,27 @@ import {
   inferSynergyLabelsFromClassEngraving,
 } from "@/lib/lostark/synergy";
 
+type RefreshBody = {
+  mode?: string;
+  characterName?: string;
+};
+
+type LostArkSiblingRow = {
+  CharacterName?: string | null;
+};
+
 type LostArkProfileResponse = {
   CharacterName?: string;
   CharacterClassName?: string;
   ServerName?: string;
   ItemAvgLevel?: string | null;
   CombatPower?: number | null;
+  CharacterImage?: string | null;
 };
 
 type LostArkArkPassiveResponse = {
   ArkPassive?: {
     Title?: string | null;
-    IsArkPassive?: boolean;
-    Points?: Array<{
-      Name?: string;
-      Value?: number;
-      Tooltip?: string;
-      Description?: string;
-    }>;
   };
   Title?: string | null;
 };
@@ -39,10 +42,6 @@ type CharacterRow = {
   combat_power: number | null;
   role: string | null;
   is_registered: boolean;
-};
-
-type RefreshBody = {
-  mode?: string;
 };
 
 function parseItemLevel(value: string | null | undefined): number | null {
@@ -93,6 +92,13 @@ async function fetchLostArkJson<T>(
   };
 }
 
+async function fetchCharacterSiblings(apiKey: string, characterName: string) {
+  return fetchLostArkJson<LostArkSiblingRow[]>(
+    apiKey,
+    `/characters/${encodeURIComponent(characterName)}/siblings`
+  );
+}
+
 async function fetchCharacterProfile(apiKey: string, characterName: string) {
   return fetchLostArkJson<LostArkProfileResponse>(
     apiKey,
@@ -110,12 +116,10 @@ async function fetchCharacterArkPassive(apiKey: string, characterName: string) {
 function extractClassEngravingFromArkPassive(
   arkPassive: LostArkArkPassiveResponse | null
 ) {
-  if (!arkPassive) return null;
-
-  const nestedTitle = arkPassive.ArkPassive?.Title?.trim();
+  const nestedTitle = arkPassive?.ArkPassive?.Title?.trim();
   if (nestedTitle) return nestedTitle;
 
-  const topLevelTitle = arkPassive.Title?.trim();
+  const topLevelTitle = arkPassive?.Title?.trim();
   if (topLevelTitle) return topLevelTitle;
 
   return null;
@@ -160,13 +164,6 @@ export async function POST(req: NextRequest) {
     const body = (await req.json().catch(() => ({}))) as RefreshBody;
     const mode = body.mode?.trim() ?? "";
 
-    if (mode !== "refresh-registered") {
-      return NextResponse.json(
-        { ok: false, error: "지원하지 않는 요청입니다." },
-        { status: 400 }
-      );
-    }
-
     const { data: accountData, error: accountError } = await supabase
       .from("profiles")
       .select("lostark_api_key")
@@ -190,141 +187,185 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    const { data: registeredCharacters, error: characterError } = await supabase
-      .from("characters")
-      .select(
-        "id, user_id, character_name, class_name, server_name, item_level, combat_power, role, is_registered"
-      )
-      .eq("user_id", user.id)
-      .eq("is_registered", true)
-      .order("updated_at", { ascending: false });
+    if (mode === "sync-candidates") {
+      const representativeName = normalizeCharacterNameForApi(body.characterName);
 
-    if (characterError) {
-      return NextResponse.json(
-        { ok: false, error: characterError.message || "캐릭터 조회 실패" },
-        { status: 400 }
-      );
-    }
+      if (!representativeName) {
+        return NextResponse.json(
+          { ok: false, error: "대표 캐릭터명을 입력해줘." },
+          { status: 400 }
+        );
+      }
 
-    const rows = (registeredCharacters as CharacterRow[]) ?? [];
-    let updatedCount = 0;
-    const updatedCharacters: Array<{
-      originalCharacterName: string;
-      apiCharacterName: string;
-      className: string | null;
-      classEngraving: string | null;
-      role: string;
-      profileOk: boolean;
-      arkPassiveOk: boolean;
-    }> = [];
-    const debugFailures: Array<{
-      originalCharacterName: string;
-      apiCharacterName: string;
-      profileStatus?: number;
-      profileText?: string;
-      arkPassiveStatus?: number;
-      arkPassiveText?: string;
-    }> = [];
+      const siblingsRes = await fetchCharacterSiblings(apiKey, representativeName);
 
-    for (const row of rows) {
-      const originalCharacterName = row.character_name?.trim();
-      const apiCharacterName = normalizeCharacterNameForApi(originalCharacterName);
+      if (!siblingsRes.ok) {
+        return NextResponse.json(
+          {
+            ok: false,
+            error: "원정대 캐릭터 목록을 불러오지 못했어.",
+            debug: {
+              status: siblingsRes.status,
+              text: siblingsRes.text,
+            },
+          },
+          { status: 400 }
+        );
+      }
 
-      if (!apiCharacterName) continue;
+      const siblingNames = (siblingsRes.data ?? [])
+        .map((row) => normalizeCharacterNameForApi(row.CharacterName))
+        .filter((name) => !!name);
 
-      const [profileRes, arkPassiveRes] = await Promise.all([
-        fetchCharacterProfile(apiKey, apiCharacterName),
-        fetchCharacterArkPassive(apiKey, apiCharacterName),
-      ]);
+      const uniqueNames = Array.from(new Set(siblingNames));
 
-      const profile = profileRes.ok ? profileRes.data : null;
-      const arkPassive = arkPassiveRes.ok ? arkPassiveRes.data : null;
+      await supabase
+        .from("character_import_candidates")
+        .delete()
+        .eq("user_id", user.id);
 
-      if (!profileRes.ok || !arkPassiveRes.ok) {
-        debugFailures.push({
-          originalCharacterName: originalCharacterName ?? "",
-          apiCharacterName,
-          profileStatus: profileRes.ok ? undefined : profileRes.status,
-          profileText: profileRes.ok ? undefined : profileRes.text,
-          arkPassiveStatus: arkPassiveRes.ok ? undefined : arkPassiveRes.status,
-          arkPassiveText: arkPassiveRes.ok ? undefined : arkPassiveRes.text,
+      const candidateRows: Array<Record<string, unknown>> = [];
+
+      for (const siblingName of uniqueNames) {
+        const profileRes = await fetchCharacterProfile(apiKey, siblingName);
+
+        if (!profileRes.ok) {
+          continue;
+        }
+
+        const profile = profileRes.data;
+
+        candidateRows.push({
+          user_id: user.id,
+          character_name: profile.CharacterName ?? siblingName,
+          class_name: profile.CharacterClassName ?? null,
+          server_name: profile.ServerName ?? null,
+          item_level: parseItemLevel(profile.ItemAvgLevel),
+          combat_power:
+            typeof profile.CombatPower === "number" ? profile.CombatPower : null,
+          profile_image_url: profile.CharacterImage ?? null,
         });
       }
 
-      const nextClassName = profile?.CharacterClassName ?? row.class_name ?? null;
-      const nextServerName = profile?.ServerName ?? row.server_name ?? null;
-      const nextItemLevel =
-        parseItemLevel(profile?.ItemAvgLevel) ?? row.item_level ?? null;
-      const nextCombatPower =
-        typeof profile?.CombatPower === "number"
-          ? profile.CombatPower
-          : row.combat_power ?? null;
+      if (candidateRows.length > 0) {
+        const { error: insertError } = await supabase
+          .from("character_import_candidates")
+          .insert(candidateRows);
 
-      const nextClassEngraving =
-        extractClassEngravingFromArkPassive(arkPassive) ?? null;
+        if (insertError) {
+          return NextResponse.json(
+            {
+              ok: false,
+              error: insertError.message || "후보 캐릭터 저장 실패",
+            },
+            { status: 400 }
+          );
+        }
+      }
 
-      const nextRole = inferRoleFromClassEngraving(
-        nextClassName,
-        nextClassEngraving,
-        row.role
-      );
+      return NextResponse.json({
+        ok: true,
+        importedCount: candidateRows.length,
+        message: "원정대 후보 캐릭터 불러오기 완료",
+      });
+    }
 
-      const nextSynergyCodes = inferSynergyCodesFromClassEngraving(
-        nextClassName,
-        nextClassEngraving
-      );
-
-      const nextSynergyLabels = inferSynergyLabelsFromClassEngraving(
-        nextClassName,
-        nextClassEngraving
-      );
-
-      const { error: updateError } = await supabase
+    if (mode === "refresh-registered") {
+      const { data: registeredCharacters, error: characterError } = await supabase
         .from("characters")
-        .update({
-          class_name: nextClassName,
-          server_name: nextServerName,
-          item_level: nextItemLevel,
-          combat_power: nextCombatPower,
-          class_engraving: nextClassEngraving,
-          role: nextRole,
-          synergy_codes: nextSynergyCodes,
-          synergy_labels: nextSynergyLabels,
-          role_source: nextClassEngraving ? "arkpassive_title" : "fallback",
-          synergy_updated_at: new Date().toISOString(),
-        })
-        .eq("id", row.id);
+        .select(
+          "id, user_id, character_name, class_name, server_name, item_level, combat_power, role, is_registered"
+        )
+        .eq("user_id", user.id)
+        .eq("is_registered", true)
+        .order("updated_at", { ascending: false });
 
-      if (!updateError) {
-        updatedCount += 1;
-        updatedCharacters.push({
-          originalCharacterName: originalCharacterName ?? "",
-          apiCharacterName,
-          className: nextClassName,
-          classEngraving: nextClassEngraving,
-          role: nextRole,
-          profileOk: profileRes.ok,
-          arkPassiveOk: arkPassiveRes.ok,
-        });
-      } else {
-        debugFailures.push({
-          originalCharacterName: originalCharacterName ?? "",
-          apiCharacterName,
-          profileStatus: profileRes.ok ? undefined : profileRes.status,
-          profileText: profileRes.ok ? undefined : profileRes.text,
-          arkPassiveStatus: arkPassiveRes.ok ? undefined : arkPassiveRes.status,
-          arkPassiveText: arkPassiveRes.ok ? undefined : arkPassiveRes.text,
-        });
+      if (characterError) {
+        return NextResponse.json(
+          { ok: false, error: characterError.message || "캐릭터 조회 실패" },
+          { status: 400 }
+        );
       }
+
+      const rows = (registeredCharacters as CharacterRow[]) ?? [];
+      let updatedCount = 0;
+
+      for (const row of rows) {
+        const originalCharacterName = row.character_name?.trim();
+        const apiCharacterName = normalizeCharacterNameForApi(originalCharacterName);
+
+        if (!apiCharacterName) continue;
+
+        const [profileRes, arkPassiveRes] = await Promise.all([
+          fetchCharacterProfile(apiKey, apiCharacterName),
+          fetchCharacterArkPassive(apiKey, apiCharacterName),
+        ]);
+
+        const profile = profileRes.ok ? profileRes.data : null;
+        const arkPassive = arkPassiveRes.ok ? arkPassiveRes.data : null;
+
+        const nextClassName = profile?.CharacterClassName ?? row.class_name ?? null;
+        const nextServerName = profile?.ServerName ?? row.server_name ?? null;
+        const nextItemLevel =
+          parseItemLevel(profile?.ItemAvgLevel) ?? row.item_level ?? null;
+        const nextCombatPower =
+          typeof profile?.CombatPower === "number"
+            ? profile.CombatPower
+            : row.combat_power ?? null;
+        const nextProfileImage = profile?.CharacterImage ?? null;
+
+        const nextClassEngraving =
+          extractClassEngravingFromArkPassive(arkPassive) ?? null;
+
+        const nextRole = inferRoleFromClassEngraving(
+          nextClassName,
+          nextClassEngraving,
+          row.role
+        );
+
+        const nextSynergyCodes = inferSynergyCodesFromClassEngraving(
+          nextClassName,
+          nextClassEngraving
+        );
+
+        const nextSynergyLabels = inferSynergyLabelsFromClassEngraving(
+          nextClassName,
+          nextClassEngraving
+        );
+
+        const { error: updateError } = await supabase
+          .from("characters")
+          .update({
+            class_name: nextClassName,
+            server_name: nextServerName,
+            item_level: nextItemLevel,
+            combat_power: nextCombatPower,
+            profile_image_url: nextProfileImage,
+            class_engraving: nextClassEngraving,
+            role: nextRole,
+            synergy_codes: nextSynergyCodes,
+            synergy_labels: nextSynergyLabels,
+            role_source: nextClassEngraving ? "arkpassive_title" : "fallback",
+            synergy_updated_at: new Date().toISOString(),
+          })
+          .eq("id", row.id);
+
+        if (!updateError) {
+          updatedCount += 1;
+        }
+      }
+
+      return NextResponse.json({
+        ok: true,
+        updatedCount,
+        message: "등록 캐릭터 갱신 완료",
+      });
     }
 
-    return NextResponse.json({
-      ok: true,
-      updatedCount,
-      updatedCharacters,
-      debugFailures,
-      message: "등록 캐릭터 갱신 완료",
-    });
+    return NextResponse.json(
+      { ok: false, error: "지원하지 않는 요청입니다." },
+      { status: 400 }
+    );
   } catch (error) {
     console.error("[/api/lostark/character] error:", error);
 
@@ -334,7 +375,7 @@ export async function POST(req: NextRequest) {
         error:
           error instanceof Error
             ? error.message
-            : "등록 캐릭터 갱신 중 오류가 발생했습니다.",
+            : "등록 캐릭터 처리 중 오류가 발생했습니다.",
       },
       { status: 500 }
     );

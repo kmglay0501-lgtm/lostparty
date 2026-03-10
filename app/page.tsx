@@ -310,6 +310,28 @@ export default function HomePage() {
     await init();
   }
 
+  async function removeBuddy(buddyUserId: string) {
+    setMessage("");
+
+    const res = await fetch("/api/buddy/remove", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ buddyUserId }),
+    });
+
+    const result = await res.json();
+
+    if (!res.ok || !result.ok) {
+      setMessage(result.error ?? "깐부 삭제 실패");
+      return;
+    }
+
+    setMessage(result.message ?? "깐부 삭제 완료");
+    await init();
+  }
+
   async function createBuddyAutoParty() {
     setMessage("");
 
@@ -598,14 +620,25 @@ export default function HomePage() {
                     key={buddy.buddy_user_id}
                     className="rounded-2xl border border-white/10 bg-black/20 p-4"
                   >
-                    <div className="font-semibold">
-                      {buddy.display_name ?? buddy.login_id ?? "-"}
-                    </div>
-                    <div className="mt-1 text-sm text-gray-400">
-                      ID: {buddy.login_id ?? "-"}
-                    </div>
-                    <div className="text-sm text-gray-400">
-                      길드: {buddy.guild_name ?? "-"}
+                    <div className="flex items-start justify-between gap-3">
+                      <div>
+                        <div className="font-semibold">
+                          {buddy.display_name ?? buddy.login_id ?? "-"}
+                        </div>
+                        <div className="mt-1 text-sm text-gray-400">
+                          ID: {buddy.login_id ?? "-"}
+                        </div>
+                        <div className="text-sm text-gray-400">
+                          길드: {buddy.guild_name ?? "-"}
+                        </div>
+                      </div>
+
+                      <button
+                        onClick={() => removeBuddy(buddy.buddy_user_id)}
+                        className="cursor-pointer rounded-xl border border-white/15 bg-white/10 px-3 py-1 text-sm transition hover:bg-white/20"
+                      >
+                        삭제
+                      </button>
                     </div>
                   </div>
                 ))}

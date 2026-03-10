@@ -24,6 +24,16 @@ type Character = {
   synergy_labels?: string[] | null;
 };
 
+type BuddyRow = {
+  buddy_user_id: string;
+  login_id: string | null;
+  display_name: string | null;
+  guild_name: string | null;
+  avatar_url: string | null;
+  is_alt_account: boolean | null;
+  created_at: string;
+};
+
 function formatDecimal(value: number | null | undefined) {
   if (value === null || value === undefined) return "-";
   return new Intl.NumberFormat("ko-KR", {
@@ -40,6 +50,7 @@ export default function MyPage() {
   const [message, setMessage] = useState("");
   const [apiKeyInput, setApiKeyInput] = useState("");
   const [characters, setCharacters] = useState<Character[]>([]);
+  const [buddies, setBuddies] = useState<BuddyRow[]>([]);
   const [refreshingRegistered, setRefreshingRegistered] = useState(false);
   const [savingEngravingId, setSavingEngravingId] = useState<string | null>(null);
 
@@ -59,7 +70,7 @@ export default function MyPage() {
       return;
     }
 
-    await loadCharacters(user.id);
+    await Promise.all([loadCharacters(user.id), loadBuddies()]);
     setLoading(false);
   }
 
@@ -78,6 +89,20 @@ export default function MyPage() {
     }
 
     setCharacters((data as Character[]) ?? []);
+  }
+
+  async function loadBuddies() {
+    const { data, error } = await supabase
+      .from("v_my_buddies")
+      .select("*")
+      .order("created_at", { ascending: false });
+
+    if (error) {
+      setMessage(error.message || "깐부 목록을 불러오지 못했어.");
+      return;
+    }
+
+    setBuddies((data as BuddyRow[]) ?? []);
   }
 
   async function saveApiKey() {
@@ -181,6 +206,28 @@ export default function MyPage() {
     }
   }
 
+  async function removeBuddy(buddyUserId: string) {
+    setMessage("");
+
+    const res = await fetch("/api/buddy/remove", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ buddyUserId }),
+    });
+
+    const result = await res.json();
+
+    if (!res.ok || !result.ok) {
+      setMessage(result.error ?? "깐부 삭제 실패");
+      return;
+    }
+
+    setMessage(result.message ?? "깐부 삭제 완료");
+    await loadBuddies();
+  }
+
   if (loading) {
     return (
       <main className="min-h-screen bg-[#09090d] p-10 text-white">
@@ -247,6 +294,42 @@ export default function MyPage() {
           </div>
         </PageCard>
       </section>
+
+      <PageCard title="깐부 관리">
+        {buddies.length === 0 ? (
+          <div className="text-sm text-gray-400">등록된 깐부가 아직 없어.</div>
+        ) : (
+          <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
+            {buddies.map((buddy) => (
+              <div
+                key={buddy.buddy_user_id}
+                className="rounded-2xl border border-white/10 bg-black/20 p-4"
+              >
+                <div className="flex items-start justify-between gap-3">
+                  <div>
+                    <div className="font-semibold">
+                      {buddy.display_name ?? buddy.login_id ?? "-"}
+                    </div>
+                    <div className="mt-1 text-sm text-gray-400">
+                      ID: {buddy.login_id ?? "-"}
+                    </div>
+                    <div className="text-sm text-gray-400">
+                      길드: {buddy.guild_name ?? "-"}
+                    </div>
+                  </div>
+
+                  <button
+                    onClick={() => removeBuddy(buddy.buddy_user_id)}
+                    className="cursor-pointer rounded-xl border border-white/15 bg-white/10 px-3 py-1 text-sm transition hover:bg-white/20"
+                  >
+                    삭제
+                  </button>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </PageCard>
 
       <PageCard title={`등록된 캐릭터 (${characters.length})`}>
         {characters.length === 0 ? (

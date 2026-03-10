@@ -4,6 +4,8 @@ import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import AppShell, { PageCard } from "@/components/AppShell";
+import AnnouncementHistory from "@/components/AnnouncementHistory";
+import SiteFooter from "@/components/SiteFooter";
 
 type RaidPostRow = {
   id: string;
@@ -725,6 +727,8 @@ export default function HomePage() {
           ) : null}
         </PageCard>
       </section>
+      <AnnouncementHistory />
+      <SiteFooter />
     </AppShell>
   );
 }

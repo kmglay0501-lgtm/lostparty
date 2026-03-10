@@ -10,29 +10,35 @@ function normalizeApiKey(value: string) {
   return value.replace(/^bearer\s+/i, "").trim();
 }
 
+function maskApiKeyForDisplay(apiKey: string | null | undefined) {
+  const normalized = normalizeApiKey(apiKey ?? "");
+  if (!normalized) return null;
+  return `${normalized.slice(0, 3)}********`;
+}
+
+function createSupabaseServerClient(cookieStore: Awaited<ReturnType<typeof cookies>>) {
+  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
+  const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+
+  if (!supabaseUrl || !supabaseAnonKey) {
+    throw new Error("Supabase 환경변수가 없습니다.");
+  }
+
+  return createServerClient(supabaseUrl, supabaseAnonKey, {
+    cookies: {
+      get(name: string) {
+        return cookieStore.get(name)?.value;
+      },
+      set() {},
+      remove() {},
+    },
+  });
+}
+
 export async function GET() {
   try {
-    const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
-    const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
-
-    if (!supabaseUrl || !supabaseAnonKey) {
-      return NextResponse.json(
-        { ok: false, error: "Supabase 환경변수가 없습니다." },
-        { status: 500 }
-      );
-    }
-
     const cookieStore = await cookies();
-
-    const supabase = createServerClient(supabaseUrl, supabaseAnonKey, {
-      cookies: {
-        get(name: string) {
-          return cookieStore.get(name)?.value;
-        },
-        set() {},
-        remove() {},
-      },
-    });
+    const supabase = createSupabaseServerClient(cookieStore);
 
     const {
       data: { user },
@@ -66,9 +72,7 @@ export async function GET() {
     return NextResponse.json({
       ok: true,
       hasApiKey: !!apiKey,
-      maskedApiKey: apiKey
-        ? `${apiKey.slice(0, 3)}${"*".repeat(Math.max(apiKey.length - 3, 8))}`
-        : null,
+      maskedApiKey: maskApiKeyForDisplay(apiKey),
     });
   } catch (error) {
     console.error("[GET /api/account/api-key] error:", error);
@@ -88,27 +92,8 @@ export async function GET() {
 
 export async function POST(req: NextRequest) {
   try {
-    const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
-    const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
-
-    if (!supabaseUrl || !supabaseAnonKey) {
-      return NextResponse.json(
-        { ok: false, error: "Supabase 환경변수가 없습니다." },
-        { status: 500 }
-      );
-    }
-
     const cookieStore = await cookies();
-
-    const supabase = createServerClient(supabaseUrl, supabaseAnonKey, {
-      cookies: {
-        get(name: string) {
-          return cookieStore.get(name)?.value;
-        },
-        set() {},
-        remove() {},
-      },
-    });
+    const supabase = createSupabaseServerClient(cookieStore);
 
     const {
       data: { user },
@@ -133,6 +118,13 @@ export async function POST(req: NextRequest) {
     }
 
     const normalizedApiKey = normalizeApiKey(rawApiKey);
+
+    if (!normalizedApiKey) {
+      return NextResponse.json(
+        { ok: false, error: "유효한 API Key를 입력해줘." },
+        { status: 400 }
+      );
+    }
 
     const { data: existingProfile, error: selectError } = await supabase
       .from("profiles")
@@ -182,9 +174,7 @@ export async function POST(req: NextRequest) {
       ok: true,
       message: "API Key 저장 완료",
       hasApiKey: true,
-      maskedApiKey: `${normalizedApiKey.slice(0, 3)}${"*".repeat(
-        Math.max(normalizedApiKey.length - 3, 8)
-      )}`,
+      maskedApiKey: maskApiKeyForDisplay(normalizedApiKey),
     });
   } catch (error) {
     console.error("[POST /api/account/api-key] error:", error);
@@ -204,27 +194,8 @@ export async function POST(req: NextRequest) {
 
 export async function DELETE() {
   try {
-    const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
-    const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
-
-    if (!supabaseUrl || !supabaseAnonKey) {
-      return NextResponse.json(
-        { ok: false, error: "Supabase 환경변수가 없습니다." },
-        { status: 500 }
-      );
-    }
-
     const cookieStore = await cookies();
-
-    const supabase = createServerClient(supabaseUrl, supabaseAnonKey, {
-      cookies: {
-        get(name: string) {
-          return cookieStore.get(name)?.value;
-        },
-        set() {},
-        remove() {},
-      },
-    });
+    const supabase = createSupabaseServerClient(cookieStore);
 
     const {
       data: { user },

@@ -15,7 +15,8 @@ type CharacterRow = {
   item_level: number | null;
   combat_power: number | null;
   profile_image_url: string | null;
-  planned_gold_raid: string | null;
+  planned_gold_raids?: string[] | null;
+  weekly_gold_raids?: string[] | null;
   weekly_gold_earned_count: number;
   is_gold_earner: boolean;
 };
@@ -29,17 +30,11 @@ type BuddyCharacterRow = {
   item_level: number | null;
   combat_power: number | null;
   profile_image_url: string | null;
-  planned_gold_raid: string | null;
+  planned_gold_raids?: string[] | null;
+  weekly_gold_raids?: string[] | null;
   effective_planned_raid?: string | null;
   weekly_gold_earned_count: number;
   is_gold_earner: boolean;
-};
-
-type AvailableRaidRow = {
-  character_id: string;
-  raid_name: string;
-  difficulty: string | null;
-  gold_raid: boolean;
 };
 
 function formatDecimal(value: number | null | undefined) {
@@ -49,8 +44,13 @@ function formatDecimal(value: number | null | undefined) {
   }).format(value);
 }
 
-function formatRaidName(raidName: string, difficulty: string | null) {
-  return difficulty ? `${raidName}/${difficulty}` : raidName;
+function getRemainingRaids(
+  plannedGoldRaids: string[] | null | undefined,
+  weeklyGoldRaids: string[] | null | undefined
+) {
+  const planned = plannedGoldRaids ?? [];
+  const cleared = weeklyGoldRaids ?? [];
+  return planned.filter((raid) => !cleared.includes(raid));
 }
 
 export default function BuddyRaidsPage() {
@@ -60,7 +60,6 @@ export default function BuddyRaidsPage() {
   const [loading, setLoading] = useState(true);
   const [myCharacters, setMyCharacters] = useState<CharacterRow[]>([]);
   const [buddyCharacters, setBuddyCharacters] = useState<BuddyCharacterRow[]>([]);
-  const [availableRaids, setAvailableRaids] = useState<AvailableRaidRow[]>([]);
   const [message, setMessage] = useState("");
 
   useEffect(() => {
@@ -83,7 +82,7 @@ export default function BuddyRaidsPage() {
       supabase
         .from("characters")
         .select(
-          "id, user_id, character_name, class_name, role, item_level, combat_power, profile_image_url, planned_gold_raid, weekly_gold_earned_count, is_gold_earner"
+          "id, user_id, character_name, class_name, role, item_level, combat_power, profile_image_url, planned_gold_raids, weekly_gold_raids, weekly_gold_earned_count, is_gold_earner"
         )
         .eq("user_id", user.id)
         .eq("is_registered", true)
@@ -92,34 +91,14 @@ export default function BuddyRaidsPage() {
       supabase
         .from("v_buddy_characters")
         .select(
-          "id, user_id, character_name, class_name, role, item_level, combat_power, profile_image_url, planned_gold_raid, effective_planned_raid, weekly_gold_earned_count, is_gold_earner"
+          "id, user_id, character_name, class_name, role, item_level, combat_power, profile_image_url, planned_gold_raids, weekly_gold_raids, effective_planned_raid, weekly_gold_earned_count, is_gold_earner"
         )
         .eq("is_gold_earner", true)
         .order("item_level", { ascending: false, nullsFirst: false }),
     ]);
 
-    const nextMyCharacters = (myCharRes.data as CharacterRow[]) ?? [];
-    const nextBuddyCharacters = (buddyCharRes.data as BuddyCharacterRow[]) ?? [];
-
-    const allCharacterIds = [
-      ...nextMyCharacters.map((row) => row.id),
-      ...nextBuddyCharacters.map((row) => row.id),
-    ];
-
-    let nextAvailableRaids: AvailableRaidRow[] = [];
-
-    if (allCharacterIds.length > 0) {
-      const { data: availableRaidData } = await supabase
-        .from("v_character_available_raids")
-        .select("character_id, raid_name, difficulty, gold_raid")
-        .in("character_id", allCharacterIds);
-
-      nextAvailableRaids = (availableRaidData as AvailableRaidRow[]) ?? [];
-    }
-
-    setMyCharacters(nextMyCharacters);
-    setBuddyCharacters(nextBuddyCharacters);
-    setAvailableRaids(nextAvailableRaids);
+    setMyCharacters((myCharRes.data as CharacterRow[]) ?? []);
+    setBuddyCharacters((buddyCharRes.data as BuddyCharacterRow[]) ?? []);
     setLoading(false);
   }
 
@@ -142,12 +121,6 @@ export default function BuddyRaidsPage() {
     );
   }
 
-  function getCharacterRaids(characterId: string) {
-    return availableRaids
-      .filter((row) => row.character_id === characterId)
-      .map((row) => formatRaidName(row.raid_name, row.difficulty));
-  }
-
   if (loading) {
     return (
       <main className="min-h-screen bg-[#09090d] p-10 text-white">
@@ -159,7 +132,7 @@ export default function BuddyRaidsPage() {
   return (
     <AppShell
       title="깐부 레이드"
-      subtitle="이번 주 남은 레이드와 깐부 골드 캐릭터 현황"
+      subtitle="개인이 설정한 골드 레이드 3개 기준으로 남은 레이드 확인"
       rightSlot={
         <div className="flex h-full items-start justify-end gap-2">
           <button
@@ -195,7 +168,8 @@ export default function BuddyRaidsPage() {
         }
       >
         <div className="text-sm text-gray-400">
-          골드 캐릭터 기준으로 이번 주 남은 레이드를 확인하고, 깐부와 겹치는 레이드를 기준으로 자동 파티를 생성할 수 있어.
+          이제 깐부 자동 파티는 아이템 레벨 추천 레이드가 아니라,
+          각 캐릭터가 직접 선택한 골드 레이드 3개 기준으로 생성돼.
         </div>
       </PageCard>
 
@@ -207,47 +181,60 @@ export default function BuddyRaidsPage() {
             </div>
           ) : (
             <div className="space-y-3">
-              {myCharacters.map((character) => (
-                <div
-                  key={character.id}
-                  className="rounded-2xl border border-white/10 bg-black/20 p-4"
-                >
-                  <div className="flex gap-4">
-                    {character.profile_image_url ? (
-                      <img
-                        src={character.profile_image_url}
-                        alt={character.character_name ?? "character"}
-                        className="h-20 w-20 rounded-xl object-cover"
-                      />
-                    ) : null}
+              {myCharacters.map((character) => {
+                const remainingRaids = getRemainingRaids(
+                  character.planned_gold_raids,
+                  character.weekly_gold_raids
+                );
 
-                    <div className="min-w-0 flex-1">
-                      <div className="font-semibold">
-                        {character.character_name ?? "-"}
-                      </div>
-                      <div className="text-sm text-gray-400">
-                        {character.class_name ?? "-"} /{" "}
-                        {character.role === "support" ? "💚 서포터" : "딜러"}
-                      </div>
-                      <div className="text-sm text-gray-400">
-                        아이템 레벨: {formatDecimal(character.item_level)}
-                      </div>
-                      <div className="text-sm text-gray-400">
-                        전투력: {formatDecimal(character.combat_power)}
-                      </div>
-                      <div className="text-sm text-gray-400">
-                        골드 획득: {character.weekly_gold_earned_count}/3
-                      </div>
-                      <div className="mt-2 text-sm text-gray-300">
-                        남은 레이드:{" "}
-                        {getCharacterRaids(character.id).length > 0
-                          ? getCharacterRaids(character.id).join(", ")
-                          : "-"}
+                return (
+                  <div
+                    key={character.id}
+                    className="rounded-2xl border border-white/10 bg-black/20 p-4"
+                  >
+                    <div className="flex gap-4">
+                      {character.profile_image_url ? (
+                        <img
+                          src={character.profile_image_url}
+                          alt={character.character_name ?? "character"}
+                          className="h-20 w-20 rounded-xl object-cover"
+                        />
+                      ) : null}
+
+                      <div className="min-w-0 flex-1">
+                        <div className="font-semibold">
+                          {character.character_name ?? "-"}
+                        </div>
+                        <div className="text-sm text-gray-400">
+                          {character.class_name ?? "-"} /{" "}
+                          {character.role === "support" ? "💚 서포터" : "딜러"}
+                        </div>
+                        <div className="text-sm text-gray-400">
+                          아이템 레벨: {formatDecimal(character.item_level)}
+                        </div>
+                        <div className="text-sm text-gray-400">
+                          전투력: {formatDecimal(character.combat_power)}
+                        </div>
+                        <div className="text-sm text-gray-400">
+                          골드 획득: {character.weekly_gold_earned_count}/3
+                        </div>
+
+                        <div className="mt-2 text-sm text-gray-300">
+                          선택한 레이드:{" "}
+                          {(character.planned_gold_raids ?? []).length > 0
+                            ? (character.planned_gold_raids ?? []).join(", ")
+                            : "-"}
+                        </div>
+
+                        <div className="mt-1 text-sm text-fuchsia-200">
+                          남은 레이드:{" "}
+                          {remainingRaids.length > 0 ? remainingRaids.join(", ") : "-"}
+                        </div>
                       </div>
                     </div>
                   </div>
-                </div>
-              ))}
+                );
+              })}
             </div>
           )}
         </PageCard>
@@ -259,53 +246,64 @@ export default function BuddyRaidsPage() {
             </div>
           ) : (
             <div className="space-y-3">
-              {buddyCharacters.map((character) => (
-                <div
-                  key={character.id}
-                  className="rounded-2xl border border-white/10 bg-black/20 p-4"
-                >
-                  <div className="flex gap-4">
-                    {character.profile_image_url ? (
-                      <img
-                        src={character.profile_image_url}
-                        alt={character.character_name ?? "buddy character"}
-                        className="h-20 w-20 rounded-xl object-cover"
-                      />
-                    ) : null}
+              {buddyCharacters.map((character) => {
+                const remainingRaids = getRemainingRaids(
+                  character.planned_gold_raids,
+                  character.weekly_gold_raids
+                );
 
-                    <div className="min-w-0 flex-1">
-                      <div className="font-semibold">
-                        {character.character_name ?? "-"}
-                      </div>
-                      <div className="text-sm text-gray-400">
-                        {character.class_name ?? "-"} /{" "}
-                        {character.role === "support" ? "💚 서포터" : "딜러"}
-                      </div>
-                      <div className="text-sm text-gray-400">
-                        아이템 레벨: {formatDecimal(character.item_level)}
-                      </div>
-                      <div className="text-sm text-gray-400">
-                        전투력: {formatDecimal(character.combat_power)}
-                      </div>
-                      <div className="text-sm text-gray-400">
-                        골드 획득: {character.weekly_gold_earned_count}/3
-                      </div>
-                      <div className="mt-2 text-sm text-gray-300">
-                        예정/참여 레이드:{" "}
-                        {character.effective_planned_raid ??
-                          character.planned_gold_raid ??
-                          "-"}
-                      </div>
-                      <div className="mt-1 text-sm text-gray-300">
-                        남은 레이드:{" "}
-                        {getCharacterRaids(character.id).length > 0
-                          ? getCharacterRaids(character.id).join(", ")
-                          : "-"}
+                return (
+                  <div
+                    key={character.id}
+                    className="rounded-2xl border border-white/10 bg-black/20 p-4"
+                  >
+                    <div className="flex gap-4">
+                      {character.profile_image_url ? (
+                        <img
+                          src={character.profile_image_url}
+                          alt={character.character_name ?? "buddy character"}
+                          className="h-20 w-20 rounded-xl object-cover"
+                        />
+                      ) : null}
+
+                      <div className="min-w-0 flex-1">
+                        <div className="font-semibold">
+                          {character.character_name ?? "-"}
+                        </div>
+                        <div className="text-sm text-gray-400">
+                          {character.class_name ?? "-"} /{" "}
+                          {character.role === "support" ? "💚 서포터" : "딜러"}
+                        </div>
+                        <div className="text-sm text-gray-400">
+                          아이템 레벨: {formatDecimal(character.item_level)}
+                        </div>
+                        <div className="text-sm text-gray-400">
+                          전투력: {formatDecimal(character.combat_power)}
+                        </div>
+                        <div className="text-sm text-gray-400">
+                          골드 획득: {character.weekly_gold_earned_count}/3
+                        </div>
+
+                        <div className="mt-2 text-sm text-gray-300">
+                          선택한 레이드:{" "}
+                          {(character.planned_gold_raids ?? []).length > 0
+                            ? (character.planned_gold_raids ?? []).join(", ")
+                            : "-"}
+                        </div>
+
+                        <div className="mt-1 text-sm text-fuchsia-200">
+                          남은 레이드:{" "}
+                          {remainingRaids.length > 0 ? remainingRaids.join(", ") : "-"}
+                        </div>
+
+                        <div className="mt-1 text-sm text-gray-400">
+                          최근 참여 레이드: {character.effective_planned_raid ?? "-"}
+                        </div>
                       </div>
                     </div>
                   </div>
-                </div>
-              ))}
+                );
+              })}
             </div>
           )}
         </PageCard>

@@ -29,6 +29,8 @@ type Character = {
   profile_image_url?: string | null;
   is_gold_earner: boolean;
   planned_gold_raid: string | null;
+  planned_gold_raids?: string[] | null;
+  weekly_gold_raids?: string[] | null;
   weekly_gold_earned_count: number;
   weekly_cleared_raid_bases: string[];
   role: string | null;
@@ -70,6 +72,29 @@ type ApiKeyStatus = {
   maskedApiKey: string | null;
 };
 
+const CHARACTERS_PER_PAGE = 6;
+
+const RAID_OPTION_LIST = [
+  "베히모스/노말",
+  "에키드나/하드",
+  "에기르/노말",
+  "에기르/하드",
+  "아브렐슈드/노말",
+  "아브렐슈드/하드",
+  "모르둠/노말",
+  "모르둠/하드",
+  "지평의 성당/1단계",
+  "지평의 성당/2단계",
+  "지평의 성당/3단계",
+  "아르모체/노말",
+  "아르모체/하드",
+  "세르카/노말",
+  "세르카/하드",
+  "세르카/나이트메어",
+  "카제로스/노말",
+  "카제로스/하드",
+];
+
 function formatDecimal(value: number | null | undefined) {
   if (value === null || value === undefined) return "-";
   return new Intl.NumberFormat("ko-KR", {
@@ -85,7 +110,17 @@ function formatDate(value: string | null | undefined) {
   return date.toLocaleString("ko-KR");
 }
 
-const CHARACTERS_PER_PAGE = 6;
+function normalizeRaidSelections(values: string[]) {
+  return Array.from(
+    new Set(values.map((v) => v.trim()).filter((v) => v.length > 0))
+  ).slice(0, 3);
+}
+
+function getRemainingRaids(character: Character) {
+  const selected = character.planned_gold_raids ?? [];
+  const cleared = character.weekly_gold_raids ?? [];
+  return selected.filter((raid) => !cleared.includes(raid));
+}
 
 export default function MyPage() {
   const supabase = useMemo(() => createClient(), []);
@@ -113,6 +148,7 @@ export default function MyPage() {
   const [characterPage, setCharacterPage] = useState(1);
   const [refreshingRegistered, setRefreshingRegistered] = useState(false);
   const [savingEngravingId, setSavingEngravingId] = useState<string | null>(null);
+  const [savingRaidConfigId, setSavingRaidConfigId] = useState<string | null>(null);
 
   const [raidName, setRaidName] = useState("");
   const [difficulty, setDifficulty] = useState("");
@@ -125,6 +161,8 @@ export default function MyPage() {
   const [myApplications, setMyApplications] = useState<RaidApplication[]>([]);
   const [buddies, setBuddies] = useState<BuddyRow[]>([]);
 
+  const [raidSelections, setRaidSelections] = useState<Record<string, string[]>>({});
+
   useEffect(() => {
     void init();
   }, []);
@@ -135,6 +173,15 @@ export default function MyPage() {
       setCharacterPage(totalPages);
     }
   }, [characters, characterPage]);
+
+  useEffect(() => {
+    const nextState: Record<string, string[]> = {};
+    for (const character of characters) {
+      const base = character.planned_gold_raids ?? [];
+      nextState[character.id] = [base[0] ?? "", base[1] ?? "", base[2] ?? ""];
+    }
+    setRaidSelections(nextState);
+  }, [characters]);
 
   async function init() {
     setLoading(true);
@@ -495,6 +542,44 @@ export default function MyPage() {
     }
   }
 
+  async function updatePlannedGoldRaids(characterId: string) {
+    setMessage("");
+    setSavingRaidConfigId(characterId);
+
+    try {
+      const nextValues = normalizeRaidSelections(raidSelections[characterId] ?? []);
+
+      const { data, error } = await supabase.rpc("update_character_planned_gold_raids", {
+        p_character_id: characterId,
+        p_planned_gold_raids: nextValues,
+      });
+
+      if (error) {
+        setMessage(error.message || "골드 레이드 설정 실패");
+        return;
+      }
+
+      const {
+        data: { user },
+      } = await supabase.auth.getUser();
+
+      if (user) {
+        await loadCharacters(user.id);
+      }
+
+      setMessage(
+        typeof data === "object" && data && "message" in data
+          ? (data as { message?: string }).message ?? "골드 레이드 설정 완료"
+          : "골드 레이드 설정 완료"
+      );
+    } catch (error) {
+      console.error("[updatePlannedGoldRaids] error:", error);
+      setMessage("골드 레이드 설정 중 오류가 발생했어.");
+    } finally {
+      setSavingRaidConfigId(null);
+    }
+  }
+
   async function deleteCharacter(characterId: string) {
     const { error } = await supabase.from("characters").delete().eq("id", characterId);
 
@@ -534,28 +619,6 @@ export default function MyPage() {
     }
 
     setMessage("골드 캐릭터 설정 완료");
-  }
-
-  async function updatePlannedRaid(characterId: string, value: string) {
-    const { error } = await supabase
-      .from("characters")
-      .update({ planned_gold_raid: value.trim() || null })
-      .eq("id", characterId);
-
-    if (error) {
-      setMessage(error.message || "예정 골드 레이드 저장 실패");
-      return;
-    }
-
-    const {
-      data: { user },
-    } = await supabase.auth.getUser();
-
-    if (user) {
-      await loadCharacters(user.id);
-    }
-
-    setMessage("예정 골드 레이드 저장 완료");
   }
 
   async function createRaidPost() {
@@ -949,6 +1012,8 @@ export default function MyPage() {
             <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
               {pagedCharacters.map((character) => {
                 const options = getKnownClassEngravingOptions(character.class_name);
+                const currentSelection = raidSelections[character.id] ?? ["", "", ""];
+                const remainingRaids = getRemainingRaids(character);
 
                 return (
                   <div
@@ -1042,12 +1107,59 @@ export default function MyPage() {
                       </div>
                     </div>
 
-                    <input
-                      className="mt-3 w-full rounded-xl border border-white/10 bg-black/30 p-3 text-white outline-none"
-                      placeholder="예정 골드 레이드"
-                      defaultValue={character.planned_gold_raid ?? ""}
-                      onBlur={(e) => updatePlannedRaid(character.id, e.target.value)}
-                    />
+                    <div className="mt-3 rounded-xl border border-white/10 bg-white/5 p-3">
+                      <div className="text-sm font-semibold text-white">
+                        골드 받을 레이드 3개 설정
+                      </div>
+
+                      <div className="mt-3 space-y-2">
+                        {[0, 1, 2].map((index) => (
+                          <select
+                            key={`${character.id}-raid-${index}`}
+                            className="w-full rounded-xl border border-white/10 bg-black/30 p-3 text-white outline-none"
+                            value={currentSelection[index] ?? ""}
+                            onChange={(e) => {
+                              setRaidSelections((prev) => {
+                                const next = [...(prev[character.id] ?? ["", "", ""])];
+                                next[index] = e.target.value;
+                                return {
+                                  ...prev,
+                                  [character.id]: next,
+                                };
+                              });
+                            }}
+                          >
+                            <option value="">레이드 선택</option>
+                            {RAID_OPTION_LIST.map((raid) => (
+                              <option key={`${character.id}-${index}-${raid}`} value={raid}>
+                                {raid}
+                              </option>
+                            ))}
+                          </select>
+                        ))}
+                      </div>
+
+                      <button
+                        onClick={() => updatePlannedGoldRaids(character.id)}
+                        disabled={savingRaidConfigId === character.id}
+                        className="mt-3 cursor-pointer rounded-xl border border-white/15 bg-white/10 px-4 py-2 text-sm transition hover:bg-white/20 disabled:opacity-50"
+                      >
+                        {savingRaidConfigId === character.id
+                          ? "저장 중..."
+                          : "골드 레이드 저장"}
+                      </button>
+
+                      <div className="mt-3 text-sm text-gray-300">
+                        현재 설정:{" "}
+                        {(character.planned_gold_raids ?? []).length > 0
+                          ? (character.planned_gold_raids ?? []).join(", ")
+                          : "-"}
+                      </div>
+
+                      <div className="mt-2 text-sm text-fuchsia-200">
+                        남은 레이드: {remainingRaids.length > 0 ? remainingRaids.join(", ") : "-"}
+                      </div>
+                    </div>
                   </div>
                 );
               })}

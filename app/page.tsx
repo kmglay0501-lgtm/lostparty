@@ -20,7 +20,9 @@ type RaidPostRow = {
 type CompletedPartyRow = {
   party_id: string;
   post_id: string;
+  party_name: string | null;
   raid_name: string | null;
+  difficulty: string | null;
   status: string;
   members: number;
 };
@@ -51,6 +53,9 @@ type BuddyCharacterRow = {
   weekly_cleared_raid_bases: string[];
   gold_exhausted: boolean | null;
   is_registered: boolean;
+  class_engraving?: string | null;
+  synergy_labels?: string[] | null;
+  effective_planned_raid?: string | null;
 };
 
 type ActiveAnnouncementRow = {
@@ -201,6 +206,7 @@ export default function HomePage() {
   const [announcement, setAnnouncement] = useState<ActiveAnnouncementRow | null>(null);
   const [ranking, setRanking] = useState<RankingItem[]>([]);
   const [showFullRanking, setShowFullRanking] = useState(false);
+  const [showAllBuddyGold, setShowAllBuddyGold] = useState(false);
   const [currentPartyPreviews, setCurrentPartyPreviews] = useState<CurrentPartyPreviewRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [buddyInput, setBuddyInput] = useState("");
@@ -247,7 +253,7 @@ export default function HomePage() {
         ? supabase
             .from("v_buddy_characters")
             .select("*")
-            .order("combat_power", { ascending: false, nullsFirst: false })
+            .eq("is_gold_earner", true)
         : Promise.resolve({ data: [] as any[] }),
       supabase.from("v_active_announcement").select("*").maybeSingle(),
       supabase
@@ -331,6 +337,7 @@ export default function HomePage() {
 
   const weekLabel = getCurrentWeekLabel();
   const top10Ranking = ranking.slice(0, 10);
+  const top10BuddyGold = buddyCharacters.slice(0, 10);
 
   if (loading) {
     return (
@@ -617,8 +624,13 @@ export default function HomePage() {
                     onClick={() => router.push(`/party/${party.party_id}`)}
                     className="cursor-pointer rounded-2xl border border-white/10 bg-black/20 p-4 text-left transition hover:bg-white/10"
                   >
-                    <div className="font-semibold">{party.raid_name ?? "-"}</div>
+                    <div className="font-semibold">
+                      {party.party_name ?? party.raid_name ?? "-"}
+                    </div>
                     <div className="mt-1 text-sm text-gray-400">
+                      {party.raid_name ?? "-"} / {party.difficulty ?? "-"}
+                    </div>
+                    <div className="text-sm text-gray-400">
                       상태: {party.status}
                     </div>
                     <div className="text-sm text-gray-400">
@@ -681,34 +693,58 @@ export default function HomePage() {
           )}
         </PageCard>
 
-        <PageCard title="깐부 골드 캐릭터">
-          {buddyCharacters.length === 0 ? (
+        <PageCard
+          title="깐부 골드 캐릭터"
+          action={
+            <button
+              onClick={() => setShowAllBuddyGold((prev) => !prev)}
+              className="cursor-pointer rounded-xl border border-white/15 bg-white/10 px-4 py-2 text-sm transition hover:bg-white/20"
+            >
+              {showAllBuddyGold ? "상세 닫기" : "상세보기"}
+            </button>
+          }
+        >
+          {top10BuddyGold.length === 0 ? (
             <div className="text-sm text-gray-400">
-              깐부 캐릭터 데이터가 아직 없어.
+              깐부 골드 캐릭터 데이터가 아직 없어.
             </div>
           ) : (
-            <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
-              {buddyCharacters.slice(0, 6).map((character) => (
+            <div className="space-y-2">
+              {top10BuddyGold.map((character, index) => (
                 <div
                   key={character.id}
-                  className={`rounded-2xl border border-white/10 bg-black/20 p-4 ${
-                    character.gold_exhausted ? "opacity-50" : ""
-                  }`}
+                  className="grid grid-cols-[56px_1fr_1fr_1fr] items-center gap-3 rounded-2xl border border-white/10 bg-black/20 px-4 py-3 text-sm"
                 >
-                  <div className="font-semibold">{character.character_name}</div>
-                  <div className="mt-1 text-sm text-gray-400">
-                    {character.class_name} / {formatDecimal(character.item_level)}
-                  </div>
-                  <div className="text-sm text-gray-400">
-                    전투력: {formatDecimal(character.combat_power)}
-                  </div>
-                  <div className="text-sm text-gray-400">
-                    예정 레이드: {character.planned_gold_raid ?? "-"}
+                  <div className="text-center font-semibold">{index + 1}</div>
+                  <div className="truncate">{character.class_name ?? "-"}</div>
+                  <div className="truncate">{character.character_name ?? "-"}</div>
+                  <div className="truncate text-right">
+                    {character.effective_planned_raid ?? "-"}
                   </div>
                 </div>
               ))}
             </div>
           )}
+
+          {showAllBuddyGold ? (
+            <div className="mt-4 max-h-[420px] overflow-y-auto rounded-2xl border border-white/10 bg-black/20 p-3">
+              <div className="space-y-2">
+                {buddyCharacters.map((character, index) => (
+                  <div
+                    key={`${character.id}-${index}`}
+                    className="grid grid-cols-[56px_1fr_1fr_1fr] items-center gap-3 rounded-xl bg-white/5 px-3 py-3 text-sm"
+                  >
+                    <div className="text-center font-semibold">{index + 1}</div>
+                    <div className="truncate">{character.class_name ?? "-"}</div>
+                    <div className="truncate">{character.character_name ?? "-"}</div>
+                    <div className="truncate text-right">
+                      {character.effective_planned_raid ?? "-"}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          ) : null}
         </PageCard>
       </section>
     </AppShell>

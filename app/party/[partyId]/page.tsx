@@ -9,7 +9,9 @@ import { inferSynergyLabelsFromClassEngraving } from "@/lib/lostark/synergy";
 type PartySummaryRow = {
   party_id: string;
   post_id: string;
+  party_name: string | null;
   raid_name: string | null;
+  difficulty: string | null;
   status: string | null;
   members: number | null;
 };
@@ -84,9 +86,7 @@ function SlotCard({ member }: { member: PartyMemberDetail }) {
         <div className="text-sm text-gray-400">
           {member.party_number ?? "-"}파티 {member.slot_number ?? "-"}번
         </div>
-        <div className="text-sm font-medium">
-          {member.is_dummy ? formatRole(member.role) : formatRole(member.role)}
-        </div>
+        <div className="text-sm font-medium">{formatRole(member.role)}</div>
       </div>
 
       {member.is_dummy ? (
@@ -209,9 +209,15 @@ export default function PartyDetailPage() {
 
   return (
     <AppShell
-      title={post?.title ?? post?.raid_name ?? partySummary.raid_name ?? "파티 상세"}
+      title={
+        partySummary.party_name ??
+        post?.title ??
+        post?.raid_name ??
+        partySummary.raid_name ??
+        "파티 상세"
+      }
       subtitle={`${post?.raid_name ?? partySummary.raid_name ?? "-"} / ${
-        post?.difficulty ?? "-"
+        post?.difficulty ?? partySummary.difficulty ?? "-"
       } / ${formatDate(post?.raid_time)}`}
       rightSlot={
         <div className="flex h-full items-start justify-end gap-2">
@@ -227,8 +233,12 @@ export default function PartyDetailPage() {
       <section className="grid grid-cols-1 gap-4 xl:grid-cols-[0.95fr_1.05fr]">
         <PageCard title="파티 정보">
           <div className="space-y-2 text-sm text-gray-300">
+            <div>
+              파티 이름:{" "}
+              {partySummary.party_name ?? post?.title ?? partySummary.raid_name ?? "-"}
+            </div>
             <div>레이드: {post?.raid_name ?? partySummary.raid_name ?? "-"}</div>
-            <div>난이도: {post?.difficulty ?? "-"}</div>
+            <div>난이도: {post?.difficulty ?? partySummary.difficulty ?? "-"}</div>
             <div>시간: {formatDate(post?.raid_time)}</div>
             <div>상태: {partySummary.status ?? "-"}</div>
             <div>설명: {post?.description ?? "-"}</div>

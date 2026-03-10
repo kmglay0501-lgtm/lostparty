@@ -163,6 +163,7 @@ export default function RaidDetailPage() {
   const [selectedCharacterId, setSelectedCharacterId] = useState("");
   const [partyMembers, setPartyMembers] = useState<PartyMemberDetail[]>([]);
   const [loading, setLoading] = useState(true);
+  const [canceling, setCanceling] = useState(false);
 
   useEffect(() => {
     void init();
@@ -243,6 +244,34 @@ export default function RaidDetailPage() {
     alert(result.message ?? "레이드 신청 완료");
   }
 
+  async function cancelMyApplication(applicationId: string) {
+    setCanceling(true);
+
+    try {
+      const res = await fetch("/api/raid/cancel", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          applicationId,
+        }),
+      });
+
+      const result = await res.json();
+
+      if (!res.ok || !result.ok) {
+        alert(result.error ?? "신청 취소 실패");
+        return;
+      }
+
+      await init();
+      alert(result.message ?? "신청 취소 완료");
+    } finally {
+      setCanceling(false);
+    }
+  }
+
   if (loading) {
     return (
       <main className="min-h-screen bg-[#09090d] p-10 text-white">
@@ -318,8 +347,17 @@ export default function RaidDetailPage() {
                 별도로 다시 신청할 수 없어.
               </div>
             ) : myExistingApplication ? (
-              <div className="rounded-2xl bg-white/10 px-4 py-3 text-gray-200">
-                이미 이 모집 또는 같은 레이드 같은 시간 모집에 신청되어 있어.
+              <div className="space-y-3">
+                <div className="rounded-2xl bg-white/10 px-4 py-3 text-gray-200">
+                  이미 신청한 상태야. 필요하면 아래 버튼으로 취소할 수 있어.
+                </div>
+                <button
+                  onClick={() => cancelMyApplication(myExistingApplication.id)}
+                  disabled={canceling}
+                  className="cursor-pointer rounded-xl border border-white/15 bg-white/10 px-4 py-2 transition hover:bg-white/20 disabled:opacity-50"
+                >
+                  {canceling ? "취소 중..." : "신청 취소"}
+                </button>
               </div>
             ) : characters.length === 0 ? (
               <div className="text-sm text-gray-400">

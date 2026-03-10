@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { cookies } from "next/headers";
 import { createServerClient } from "@supabase/ssr";
 
-type CancelRaidBody = {
+type CancelBody = {
   applicationId?: string;
 };
 
@@ -42,7 +42,7 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    const body = (await req.json().catch(() => ({}))) as CancelRaidBody;
+    const body = (await req.json().catch(() => ({}))) as CancelBody;
     const applicationId = body.applicationId?.trim();
 
     if (!applicationId) {
@@ -52,22 +52,27 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    const { error } = await supabase
-      .from("raid_post_applications")
-      .delete()
-      .eq("id", applicationId)
-      .eq("user_id", user.id);
+    const { data, error } = await supabase.rpc("cancel_my_raid_application", {
+      p_application_id: applicationId,
+    });
 
     if (error) {
       return NextResponse.json(
-        { ok: false, error: error.message || "레이드 신청 취소 실패" },
+        { ok: false, error: error.message || "신청 취소 실패" },
         { status: 400 }
       );
     }
 
+    const payload =
+      typeof data === "object" && data ? (data as Record<string, unknown>) : {};
+
     return NextResponse.json({
       ok: true,
-      message: "레이드 신청 취소 완료",
+      postId: typeof payload.post_id === "string" ? payload.post_id : null,
+      message:
+        typeof payload.message === "string"
+          ? payload.message
+          : "신청 취소 완료",
     });
   } catch (error) {
     console.error("[/api/raid/cancel] error:", error);
@@ -78,7 +83,7 @@ export async function POST(req: NextRequest) {
         error:
           error instanceof Error
             ? error.message
-            : "레이드 신청 취소 중 오류가 발생했습니다.",
+            : "신청 취소 중 오류가 발생했습니다.",
       },
       { status: 500 }
     );

@@ -1,12 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { cookies } from "next/headers";
 import { createServerClient } from "@supabase/ssr";
-import {
-  getKnownClassEngravings,
-  inferRoleFromClassEngraving,
-  inferSynergyCodesFromClassEngraving,
-  inferSynergyLabelsFromClassEngraving,
-} from "@/lib/lostark/synergy";
 
 type LostArkProfileResponse = {
   CharacterName?: string;
@@ -14,36 +8,6 @@ type LostArkProfileResponse = {
   ServerName?: string;
   ItemAvgLevel?: string | null;
   CombatPower?: number | null;
-};
-
-type LostArkEngravingResponse = {
-  ArkPassiveEffects?: Array<{
-    Name?: string;
-    Grade?: string;
-    Level?: number;
-  }>;
-  Effects?: Array<{
-    Name?: string;
-    Tooltip?: string;
-  }>;
-  Engravings?: Array<{
-    Name?: string;
-    Tooltip?: string;
-  }>;
-};
-
-type LostArkArkPassiveResponse = {
-  IsArkPassive?: boolean;
-  Effects?: Array<{
-    Name?: string;
-    Description?: string;
-    Icon?: string;
-  }>;
-  Points?: Array<{
-    Name?: string;
-    Value?: number;
-    Description?: string;
-  }>;
 };
 
 type CharacterRow = {
@@ -54,8 +18,6 @@ type CharacterRow = {
   server_name: string | null;
   item_level: number | null;
   combat_power: number | null;
-  profile_image_url: string | null;
-  role: string | null;
   is_registered: boolean;
 };
 
@@ -68,76 +30,6 @@ function parseItemLevel(value: string | null | undefined): number | null {
   const cleaned = value.replace(/,/g, "");
   const parsed = Number(cleaned);
   return Number.isFinite(parsed) ? parsed : null;
-}
-
-function normalizeText(value: string | null | undefined) {
-  return (value ?? "")
-    .replace(/[()\[\]{}:·.,/\\\-_\s]/g, "")
-    .trim()
-    .toLowerCase();
-}
-
-function uniqueTexts(values: Array<string | null | undefined>) {
-  return Array.from(
-    new Set(values.map((v) => (v ?? "").trim()).filter((v) => v.length > 0))
-  );
-}
-
-function matchKnownEngraving(
-  className: string | null | undefined,
-  texts: string[]
-) {
-  const known = getKnownClassEngravings(className);
-  const normalizedKnown = known.map((value) => ({
-    raw: value,
-    normalized: normalizeText(value),
-  }));
-
-  const normalizedTexts = texts.map((value) => ({
-    raw: value,
-    normalized: normalizeText(value),
-  }));
-
-  for (const knownItem of normalizedKnown) {
-    for (const textItem of normalizedTexts) {
-      if (
-        textItem.normalized === knownItem.normalized ||
-        textItem.normalized.includes(knownItem.normalized) ||
-        knownItem.normalized.includes(textItem.normalized)
-      ) {
-        return knownItem.raw;
-      }
-    }
-  }
-
-  return null;
-}
-
-function pickClassEngraving(
-  className: string | null | undefined,
-  engravings: LostArkEngravingResponse | null,
-  arkPassive: LostArkArkPassiveResponse | null
-) {
-  const arkTexts = uniqueTexts([
-    ...(arkPassive?.Effects?.map((row) => row?.Name ?? "") ?? []),
-    ...(arkPassive?.Effects?.map((row) => row?.Description ?? "") ?? []),
-    ...(arkPassive?.Points?.map((row) => row?.Name ?? "") ?? []),
-    ...(arkPassive?.Points?.map((row) => row?.Description ?? "") ?? []),
-  ]);
-
-  const fromArkPassive = matchKnownEngraving(className, arkTexts);
-  if (fromArkPassive) return fromArkPassive;
-
-  const engravingTexts = uniqueTexts([
-    ...(engravings?.ArkPassiveEffects?.map((row) => row?.Name ?? "") ?? []),
-    ...(engravings?.Effects?.map((row) => row?.Name ?? "") ?? []),
-    ...(engravings?.Engravings?.map((row) => row?.Name ?? "") ?? []),
-  ]);
-
-  const fromEngravings = matchKnownEngraving(className, engravingTexts);
-  if (fromEngravings) return fromEngravings;
-
-  return null;
 }
 
 async function fetchLostArkJson<T>(
@@ -234,7 +126,7 @@ export async function POST(req: NextRequest) {
     const { data: registeredCharacters, error: characterError } = await supabase
       .from("characters")
       .select(
-        "id, user_id, character_name, class_name, server_name, item_level, combat_power, profile_image_url, role, is_registered"
+        "id, user_id, character_name, class_name, server_name, item_level, combat_power, is_registered"
       )
       .eq("user_id", user.id)
       .eq("is_registered", true)
@@ -256,51 +148,21 @@ export async function POST(req: NextRequest) {
 
       const encodedName = encodeURIComponent(characterName);
 
-      const [profile, engravings, arkPassive] = await Promise.all([
-        fetchLostArkJson<LostArkProfileResponse>(
-          apiKey,
-          `/armories/characters/${encodedName}/profiles`
-        ),
-        fetchLostArkJson<LostArkEngravingResponse>(
-          apiKey,
-          `/armories/characters/${encodedName}/engravings`
-        ),
-        fetchLostArkJson<LostArkArkPassiveResponse>(
-          apiKey,
-          `/armories/characters/${encodedName}/arkpassive`
-        ),
-      ]);
+      const profile = await fetchLostArkJson<LostArkProfileResponse>(
+        apiKey,
+        `/armories/characters/${encodedName}/profiles`
+      );
 
-      const nextClassName = profile?.CharacterClassName ?? row.class_name ?? null;
-      const nextServerName = profile?.ServerName ?? row.server_name ?? null;
+      if (!profile) continue;
+
+      const nextClassName = profile.CharacterClassName ?? row.class_name ?? null;
+      const nextServerName = profile.ServerName ?? row.server_name ?? null;
       const nextItemLevel =
-        parseItemLevel(profile?.ItemAvgLevel) ?? row.item_level ?? null;
+        parseItemLevel(profile.ItemAvgLevel) ?? row.item_level ?? null;
       const nextCombatPower =
-        typeof profile?.CombatPower === "number"
+        typeof profile.CombatPower === "number"
           ? profile.CombatPower
           : row.combat_power ?? null;
-
-      const classEngraving = pickClassEngraving(
-        nextClassName,
-        engravings,
-        arkPassive
-      );
-
-      const nextRole = inferRoleFromClassEngraving(
-        nextClassName,
-        classEngraving,
-        row.role
-      );
-
-      const nextSynergyCodes = inferSynergyCodesFromClassEngraving(
-        nextClassName,
-        classEngraving
-      );
-
-      const nextSynergyLabels = inferSynergyLabelsFromClassEngraving(
-        nextClassName,
-        classEngraving
-      );
 
       const { error: updateError } = await supabase
         .from("characters")
@@ -309,12 +171,6 @@ export async function POST(req: NextRequest) {
           server_name: nextServerName,
           item_level: nextItemLevel,
           combat_power: nextCombatPower,
-          class_engraving: classEngraving,
-          role: nextRole,
-          synergy_codes: nextSynergyCodes,
-          synergy_labels: nextSynergyLabels,
-          role_source: classEngraving ? "latest_user_mapping" : "fallback",
-          synergy_updated_at: new Date().toISOString(),
         })
         .eq("id", row.id);
 

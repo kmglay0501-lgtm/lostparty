@@ -13,10 +13,7 @@ export async function POST(req: NextRequest) {
 
     if (!supabaseUrl || !supabaseAnonKey) {
       return NextResponse.json(
-        {
-          ok: false,
-          error: "Supabase 환경변수가 없습니다.",
-        },
+        { ok: false, error: "Supabase 환경변수가 없습니다." },
         { status: 500 }
       );
     }
@@ -40,10 +37,7 @@ export async function POST(req: NextRequest) {
 
     if (authError || !user) {
       return NextResponse.json(
-        {
-          ok: false,
-          error: "로그인이 필요합니다.",
-        },
+        { ok: false, error: "로그인이 필요합니다." },
         { status: 401 }
       );
     }
@@ -53,28 +47,43 @@ export async function POST(req: NextRequest) {
 
     if (!apiKey) {
       return NextResponse.json(
-        {
-          ok: false,
-          error: "API Key를 입력해줘.",
-        },
+        { ok: false, error: "API Key를 입력해줘." },
         { status: 400 }
       );
     }
 
-    const { error } = await supabase.rpc("set_lostark_api_key", {
-      p_api_key: apiKey,
-    });
+    const { data: profileData } = await supabase
+      .from("profiles")
+      .select("id")
+      .eq("id", user.id)
+      .maybeSingle();
 
-    if (error) {
-      console.error("[/api/account/api-key] rpc error:", error);
+    if (!profileData) {
+      const { error: insertError } = await supabase.from("profiles").insert({
+        id: user.id,
+        lostark_api_key: apiKey,
+      });
 
-      return NextResponse.json(
-        {
-          ok: false,
-          error: error.message || "API Key 저장 실패",
-        },
-        { status: 400 }
-      );
+      if (insertError) {
+        return NextResponse.json(
+          { ok: false, error: insertError.message || "API Key 저장 실패" },
+          { status: 400 }
+        );
+      }
+    } else {
+      const { error: updateError } = await supabase
+        .from("profiles")
+        .update({
+          lostark_api_key: apiKey,
+        })
+        .eq("id", user.id);
+
+      if (updateError) {
+        return NextResponse.json(
+          { ok: false, error: updateError.message || "API Key 저장 실패" },
+          { status: 400 }
+        );
+      }
     }
 
     return NextResponse.json({
@@ -90,7 +99,7 @@ export async function POST(req: NextRequest) {
         error:
           error instanceof Error
             ? error.message
-            : "API Key 저장 중 알 수 없는 오류가 발생했습니다.",
+            : "API Key 저장 중 오류가 발생했습니다.",
       },
       { status: 500 }
     );

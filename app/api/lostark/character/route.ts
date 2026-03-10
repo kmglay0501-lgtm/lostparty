@@ -26,6 +26,7 @@ type LostArkArkPassiveResponse = {
       Description?: string;
     }>;
   };
+  Title?: string | null;
 };
 
 type CharacterRow = {
@@ -55,10 +56,15 @@ function normalizeApiKey(value: string) {
   return value.replace(/^bearer\s+/i, "").trim();
 }
 
+function normalizeCharacterNameForApi(value: string | null | undefined) {
+  if (!value) return "";
+  return value.split("@")[0].trim();
+}
+
 async function fetchLostArkJson<T>(
   apiKey: string,
   endpoint: string
-): Promise<T | null> {
+): Promise<{ ok: true; data: T } | { ok: false; status: number; text: string }> {
   const res = await fetch(
     `https://developer-lostark.game.onstove.com${endpoint}`,
     {
@@ -72,10 +78,19 @@ async function fetchLostArkJson<T>(
   );
 
   if (!res.ok) {
-    return null;
+    const text = await res.text().catch(() => "");
+    return {
+      ok: false,
+      status: res.status,
+      text,
+    };
   }
 
-  return (await res.json()) as T;
+  const data = (await res.json()) as T;
+  return {
+    ok: true,
+    data,
+  };
 }
 
 async function fetchCharacterProfile(apiKey: string, characterName: string) {
@@ -95,8 +110,15 @@ async function fetchCharacterArkPassive(apiKey: string, characterName: string) {
 function extractClassEngravingFromArkPassive(
   arkPassive: LostArkArkPassiveResponse | null
 ) {
-  const title = arkPassive?.ArkPassive?.Title?.trim();
-  return title && title.length > 0 ? title : null;
+  if (!arkPassive) return null;
+
+  const nestedTitle = arkPassive.ArkPassive?.Title?.trim();
+  if (nestedTitle) return nestedTitle;
+
+  const topLevelTitle = arkPassive.Title?.trim();
+  if (topLevelTitle) return topLevelTitle;
+
+  return null;
 }
 
 export async function POST(req: NextRequest) {
@@ -187,20 +209,47 @@ export async function POST(req: NextRequest) {
     const rows = (registeredCharacters as CharacterRow[]) ?? [];
     let updatedCount = 0;
     const updatedCharacters: Array<{
-      characterName: string;
+      originalCharacterName: string;
+      apiCharacterName: string;
       className: string | null;
       classEngraving: string | null;
       role: string;
+      profileOk: boolean;
+      arkPassiveOk: boolean;
+    }> = [];
+    const debugFailures: Array<{
+      originalCharacterName: string;
+      apiCharacterName: string;
+      profileStatus?: number;
+      profileText?: string;
+      arkPassiveStatus?: number;
+      arkPassiveText?: string;
     }> = [];
 
     for (const row of rows) {
-      const characterName = row.character_name?.trim();
-      if (!characterName) continue;
+      const originalCharacterName = row.character_name?.trim();
+      const apiCharacterName = normalizeCharacterNameForApi(originalCharacterName);
 
-      const [profile, arkPassive] = await Promise.all([
-        fetchCharacterProfile(apiKey, characterName),
-        fetchCharacterArkPassive(apiKey, characterName),
+      if (!apiCharacterName) continue;
+
+      const [profileRes, arkPassiveRes] = await Promise.all([
+        fetchCharacterProfile(apiKey, apiCharacterName),
+        fetchCharacterArkPassive(apiKey, apiCharacterName),
       ]);
+
+      const profile = profileRes.ok ? profileRes.data : null;
+      const arkPassive = arkPassiveRes.ok ? arkPassiveRes.data : null;
+
+      if (!profileRes.ok || !arkPassiveRes.ok) {
+        debugFailures.push({
+          originalCharacterName: originalCharacterName ?? "",
+          apiCharacterName,
+          profileStatus: profileRes.ok ? undefined : profileRes.status,
+          profileText: profileRes.ok ? undefined : profileRes.text,
+          arkPassiveStatus: arkPassiveRes.ok ? undefined : arkPassiveRes.status,
+          arkPassiveText: arkPassiveRes.ok ? undefined : arkPassiveRes.text,
+        });
+      }
 
       const nextClassName = profile?.CharacterClassName ?? row.class_name ?? null;
       const nextServerName = profile?.ServerName ?? row.server_name ?? null;
@@ -249,10 +298,22 @@ export async function POST(req: NextRequest) {
       if (!updateError) {
         updatedCount += 1;
         updatedCharacters.push({
-          characterName,
+          originalCharacterName: originalCharacterName ?? "",
+          apiCharacterName,
           className: nextClassName,
           classEngraving: nextClassEngraving,
           role: nextRole,
+          profileOk: profileRes.ok,
+          arkPassiveOk: arkPassiveRes.ok,
+        });
+      } else {
+        debugFailures.push({
+          originalCharacterName: originalCharacterName ?? "",
+          apiCharacterName,
+          profileStatus: profileRes.ok ? undefined : profileRes.status,
+          profileText: profileRes.ok ? undefined : profileRes.text,
+          arkPassiveStatus: arkPassiveRes.ok ? undefined : arkPassiveRes.status,
+          arkPassiveText: arkPassiveRes.ok ? undefined : arkPassiveRes.text,
         });
       }
     }
@@ -261,6 +322,7 @@ export async function POST(req: NextRequest) {
       ok: true,
       updatedCount,
       updatedCharacters,
+      debugFailures,
       message: "등록 캐릭터 갱신 완료",
     });
   } catch (error) {
